@@ -65,6 +65,40 @@ export async function updateUser(userId, payload) {
   return handle(resp);
 }
 
+export async function listDepartments() {
+  const resp = await fetch(`${BACKEND_URL}/departments`, { headers: authHeaders() });
+  return handle(resp);
+}
+
+export async function createDepartment(name) {
+  const resp = await fetch(`${BACKEND_URL}/departments`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ name }),
+  });
+  return handle(resp);
+}
+
+export async function updateDepartment(departmentId, name) {
+  const resp = await fetch(`${BACKEND_URL}/departments/${departmentId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json", ...authHeaders() },
+    body: JSON.stringify({ name }),
+  });
+  return handle(resp);
+}
+
+export async function deleteDepartment(departmentId) {
+  const resp = await fetch(`${BACKEND_URL}/departments/${departmentId}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+  if (!resp.ok) {
+    const body = await resp.json().catch(() => ({}));
+    throw new Error(body.detail || `Request failed (${resp.status})`);
+  }
+}
+
 export async function listTimeEntries(userId, range) {
   const url = new URL(`${BACKEND_URL}/time-entries`);
   if (userId) url.searchParams.set("user_id", userId);

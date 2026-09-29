@@ -233,6 +233,7 @@ export default function EmployeeDetail() {
           <h3>{user.name}</h3>
           <p className="muted">{{ superadmin: "Super Administrator", admin: "Administrator", manager: "Manager", tl: "Team Lead", user: "Employee" }[user.role] || user.role}</p>
           <div className="profile-row"><span>Email</span><span>{user.email}</span></div>
+          <div className="profile-row"><span>Department</span><span>{user.department?.name || "Unassigned"}</span></div>
           <div className="profile-row">
             <span>Status</span>
             <span className={`pill pill-${liveStatus}`}>

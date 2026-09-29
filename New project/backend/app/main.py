@@ -5,7 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from . import models
 from .database import engine, migrate_schema
-from .routers import auth, users, time_entries, screenshots, settings
+from .routers import auth, users, time_entries, screenshots, settings, departments
 
 models.Base.metadata.create_all(bind=engine)
 migrate_schema()
@@ -35,6 +35,7 @@ app.add_middleware(
 
 app.include_router(auth.router)
 app.include_router(users.router)
+app.include_router(departments.router)
 app.include_router(time_entries.router)
 app.include_router(screenshots.router)
 app.include_router(settings.router)

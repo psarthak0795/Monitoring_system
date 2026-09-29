@@ -157,6 +157,25 @@ def get_visible_member_ids(db: Session, current_user: models.User) -> Optional[s
     return {current_user.id, *(member_id for (member_id,) in visible_descendants)}
 
 
+def get_visible_department_ids(db: Session, current_user: models.User) -> Optional[set]:
+    """Departments referenced by members visible to this user."""
+    visible_member_ids = get_visible_member_ids(db, current_user)
+    if visible_member_ids is None:
+        return None
+    if not visible_member_ids:
+        return set()
+    rows = (
+        db.query(models.User.department_id)
+        .filter(
+            models.User.id.in_(visible_member_ids),
+            models.User.department_id.is_not(None),
+        )
+        .distinct()
+        .all()
+    )
+    return {department_id for (department_id,) in rows}
+
+
 def can_manage(db: Session, current_user: models.User, target_user_id: int) -> bool:
     """Whether current_user is allowed to view/edit target_user_id: Super
     Admin can manage anyone; anyone else can manage themselves and anyone

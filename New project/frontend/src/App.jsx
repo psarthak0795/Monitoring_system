@@ -9,6 +9,7 @@ import Timesheets from "./pages/Timesheets.jsx";
 import Screenshots from "./pages/Screenshots.jsx";
 import Members from "./pages/Members.jsx";
 import RoleMembers from "./pages/RoleMembers.jsx";
+import Departments from "./pages/Departments.jsx";
 import { getCurrentUser, logout } from "./api";
 import logo from "./assets/org-tracker-logo.svg";
 
@@ -28,7 +29,7 @@ function NavIcon({ type }) {
   const paths = {
     dashboard: <><rect x="2.5" y="2.5" width="4" height="4" rx=".5" /><rect x="9.5" y="2.5" width="4" height="4" rx=".5" /><rect x="2.5" y="9.5" width="4" height="4" rx=".5" /><rect x="9.5" y="9.5" width="4" height="4" rx=".5" /></>,
     members: <><circle cx="6" cy="5" r="2.5" /><path d="M1.5 13.5v-1a4.5 4.5 0 0 1 9 0v1zM11 3a2.5 2.5 0 0 1 0 4.9M12 9a3.5 3.5 0 0 1 2.5 3.4v1" /></>,
-    timesheets: <><circle cx="8" cy="8" r="5" /><path d="M8 5v3l2 1" /></>,
+    timesheets: <><circle cx="8" cy="4.8" r="2.2" /><path d="M3.5 13.5c.8-2.5 3.1-3.8 4.5-3.8 1.4 0 3.7 1.3 4.5 3.8" /></>,
     screenshots: <><rect x="2" y="3" width="12" height="8" rx="1" /><path d="M5 14h6M8 11v3" /></>,
     management: <><path d="M8 2.5 9.2 3l1.4-.5 1.1 1.1-.5 1.4.5 1.2 1.3.7v1.6l-1.3.7-.5 1.2.5 1.4-1.1 1.1-1.4-.5-1.2.5-.7 1.3H6.7L6 12.9l-1.2-.5-1.4.5-1.1-1.1.5-1.4-.5-1.2L1 8.5V6.9l1.3-.7.5-1.2-.5-1.4 1.1-1.1 1.4.5L6 2.5l.7-1.3h1.6z" /><circle cx="7.5" cy="7.7" r="2" /></>,
   };
@@ -58,7 +59,7 @@ function Shell({ children }) {
         <nav className="sidebar-nav">
           <NavLink to="/"><NavIcon type="dashboard" />Dashboard</NavLink>
           <NavLink to="/members"><NavIcon type="members" />Members</NavLink>
-          <NavLink to="/employee/me"><NavIcon type="timesheets" />Timesheets</NavLink>
+          <NavLink to="/employee/me"><NavIcon type="timesheets" />Profile</NavLink>
           <NavLink to="/screenshots"><NavIcon type="screenshots" />Screenshots</NavLink>
           <NavLink className="management-link" to="/tracker-management"><NavIcon type="management" />Tracker Management</NavLink>
         </nav>
@@ -91,6 +92,14 @@ export default function App() {
           element={
             <RequireAuth>
               <Shell><Members /></Shell>
+            </RequireAuth>
+          }
+        />
+        <Route
+          path="/departments"
+          element={
+            <RequireAuth>
+              <Shell><Departments /></Shell>
             </RequireAuth>
           }
         />

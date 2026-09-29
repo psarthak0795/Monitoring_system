@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from typing import Optional 
-from pydantic import BaseModel, EmailStr, Field, field_serializer
+from pydantic import BaseModel, EmailStr, Field, field_serializer, field_validator
  
 from .models import UserRole, TimeEntryStatus
  
@@ -25,12 +25,54 @@ class Token(BaseModel):
  
  
 # ---- User ----
+
+class DepartmentCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Department name cannot be empty.")
+        return value
+
+
+class DepartmentUpdate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+
+    @field_validator("name")
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Department name cannot be empty.")
+        return value
+
+
+class DepartmentOut(BaseModel):
+    id: int
+    name: str
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class DepartmentName(BaseModel):
+    id: int
+    name: str
+
+    class Config:
+        from_attributes = True
  
 class UserCreate(BaseModel):
         name: str
         email: EmailStr
         password: str
         role: UserRole = UserRole.user
+        department_id: int = Field(gt=0)
         parent_id:Optional[int] = Field(
         default=None,
         description=(
@@ -60,6 +102,7 @@ class UserUpdate(BaseModel):
     name: Optional[str] = None
     role: Optional[UserRole] = None
     is_active: Optional[bool] = None
+    department_id: Optional[int] = Field(default=None, gt=0)
     parent_id: Optional[int] = Field(
         default=None,
         description=(
@@ -86,6 +129,8 @@ class UserOut(BaseModel):
     role: UserRole
     is_active: bool
     parent_id: Optional[int] = None
+    department_id: Optional[int] = None
+    department: Optional[DepartmentName] = None
 
     class Config:
         from_attributes = True

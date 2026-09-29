@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowRight, Network, Rocket, Search, ShieldCheck, SquareTerminal, UserPlus } from "lucide-react";
-import { createUser, getCurrentUser, listUsers } from "../api";
+import { ArrowRight, Building2, Network, Rocket, Search, ShieldCheck, SquareTerminal, UserPlus } from "lucide-react";
+import { createUser, getCurrentUser, listDepartments, listUsers } from "../api";
 
 const roleGroups = [
   { role: "admin", slug: "admins", title: "Admin", descriptor: "Members", action: "Manage Admins", tier: "Tier 1", Icon: ShieldCheck },
@@ -30,6 +30,7 @@ const visibleRoles = {
 export default function Members() {
   const navigate = useNavigate();
   const [users, setUsers] = useState([]);
+  const [departments, setDepartments] = useState([]);
   const [currentUser, setCurrentUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -37,34 +38,46 @@ export default function Members() {
   const [showAddModal, setShowAddModal] = useState(false);
   const [saving, setSaving] = useState(false);
   const [addError, setAddError] = useState("");
-  const [newMember, setNewMember] = useState({ name: "", email: "", password: "", role: "", parent_id: "" });
+  const [departmentLoading, setDepartmentLoading] = useState(false);
+  const [departmentError, setDepartmentError] = useState("");
+  const [newMember, setNewMember] = useState({ name: "", email: "", password: "", role: "", parent_id: "", department_id: "" });
 
   const allowedRoles = creatableRoles[currentUser?.role] || [];
   const displayedRoleGroups = roleGroups.filter((group) => (visibleRoles[currentUser?.role] || []).includes(group.role));
 
   async function loadMembers() {
-    const members = await listUsers();
+    const [members, departmentList] = await Promise.all([listUsers(), listDepartments()]);
     setUsers(members);
+    setDepartments(departmentList);
   }
 
   useEffect(() => {
-    Promise.all([getCurrentUser(), listUsers()])
-      .then(([user, members]) => {
+    setDepartmentLoading(true);
+    Promise.all([getCurrentUser(), listUsers(), listDepartments()])
+      .then(([user, members, departmentList]) => {
         setCurrentUser(user);
         setUsers(members);
+        setDepartments(departmentList);
       })
-      .catch((err) => setError(err.message))
-      .finally(() => setLoading(false));
+      .catch((err) => {
+        setError(err.message);
+        setDepartmentError(err.message);
+      })
+      .finally(() => {
+        setLoading(false);
+        setDepartmentLoading(false);
+      });
   }, []);
 
   const filteredUsers = useMemo(() => {
     const query = search.trim().toLowerCase();
-    return users.filter((user) => !query || `${user.name} ${user.email}`.toLowerCase().includes(query));
+    return users.filter((user) => !query || `${user.name} ${user.email} ${user.department?.name || ""}`.toLowerCase().includes(query));
   }, [users, search]);
 
   function openAddModal() {
     setAddError("");
-    setNewMember({ name: "", email: "", password: "", role: allowedRoles[0] || "", parent_id: "" });
+    setDepartmentError("");
+    setNewMember({ name: "", email: "", password: "", role: allowedRoles[0] || "", parent_id: "", department_id: "" });
     setShowAddModal(true);
   }
 
@@ -73,7 +86,7 @@ export default function Members() {
     setAddError("");
     setSaving(true);
     try {
-      await createUser({ ...newMember, parent_id: Number(newMember.parent_id) });
+      await createUser({ ...newMember, parent_id: Number(newMember.parent_id), department_id: Number(newMember.department_id) });
       await loadMembers();
       setShowAddModal(false);
     } catch (err) {
@@ -102,6 +115,11 @@ export default function Members() {
             <UserPlus size={16} aria-hidden="true" />
             <span>Add Member</span>
           </button>
+          {currentUser?.role === "superadmin" && (
+            <button className="mr-departments-btn" type="button" onClick={() => navigate("/departments")}>
+              <Building2 size={16} aria-hidden="true" /> Departments
+            </button>
+          )}
         </div>
       </header>
 
@@ -175,6 +193,13 @@ export default function Members() {
               <select id="member-role" required value={newMember.role} onChange={(event) => setNewMember({ ...newMember, role: event.target.value, parent_id: "" })}>
                 {allowedRoles.map((role) => <option value={role} key={role}>{roleLabels[role]}</option>)}
               </select>
+              <label htmlFor="member-department">Department</label>
+              <select id="member-department" required value={newMember.department_id} onChange={(event) => setNewMember({ ...newMember, department_id: event.target.value })} disabled={departmentLoading || departments.length === 0}>
+                <option value="">{departmentLoading ? "Loading departments..." : departments.length ? "Select department" : "No departments available"}</option>
+                {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
+              </select>
+              {departmentError && <div className="alert-error" role="alert">{departmentError}</div>}
+              {!departmentLoading && !departmentError && departments.length === 0 && <p className="members-empty">Ask a Super Admin to create a department first.</p>}
               <label htmlFor="member-parent">Reports to</label>
               <select id="member-parent" required value={newMember.parent_id} onChange={(event) => setNewMember({ ...newMember, parent_id: event.target.value })}>
                 <option value="">Select {roleLabels[parentRole] || "manager"}</option>
@@ -182,7 +207,7 @@ export default function Members() {
               </select>
               <div className="modal-actions">
                 <button type="button" className="btn-secondary" onClick={() => setShowAddModal(false)}>Cancel</button>
-                <button type="submit" className="btn-primary" disabled={saving || !newMember.role}>{saving ? "Adding..." : "Add Member"}</button>
+                <button type="submit" className="btn-primary" disabled={saving || !newMember.role || !newMember.department_id}>{saving ? "Adding..." : "Add Member"}</button>
               </div>
             </form>
           </div>

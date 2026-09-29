@@ -45,6 +45,23 @@ def _validate_parent(
     return parent
 
 
+def _validate_department(
+    db: Session,
+    acting_user: models.User,
+    department_id: Optional[int],
+) -> models.Department:
+    if department_id is None:
+        raise HTTPException(status_code=400, detail="department_id is required.")
+    department = db.query(models.Department).filter(models.Department.id == department_id).first()
+    if not department:
+        raise HTTPException(status_code=400, detail="Selected department does not exist.")
+    if acting_user.role != models.UserRole.superadmin:
+        visible_department_ids = auth.get_visible_department_ids(db, acting_user)
+        if department_id not in visible_department_ids:
+            raise HTTPException(status_code=403, detail="You cannot assign members to this department.")
+    return department
+
+
 @router.get("/me", response_model=schemas.UserOut)
 def read_current_user(current_user: models.User = Depends(auth.get_current_user)):
     return current_user
@@ -80,12 +97,14 @@ def create_user(
         raise HTTPException(status_code=400, detail="Email already registered")
 
     parent = _validate_parent(db, current_user, payload.role, payload.parent_id)
+    department = _validate_department(db, current_user, payload.department_id)
     user = models.User(
         name=payload.name,
         email=payload.email,
         hashed_password=auth.hash_password(payload.password),
         role=payload.role,
         parent_id=parent.id if parent else None,
+        department_id=department.id,
     )
     db.add(user)
     db.commit()
@@ -154,6 +173,10 @@ def update_user(
 
     if payload.name is not None:
         user.name = payload.name
+
+    if "department_id" in payload.model_fields_set:
+        department = _validate_department(db, acting_user, payload.department_id)
+        user.department_id = department.id
 
     if payload.is_active is not None:
         if user_id == acting_user.id:

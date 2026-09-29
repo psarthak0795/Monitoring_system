@@ -1,7 +1,7 @@
 import enum
 
 from sqlalchemy import (
-    Column, Integer, String, DateTime, ForeignKey, Enum, Float, Boolean
+    Column, Integer, String, DateTime, ForeignKey, Enum, Float, Boolean, Index, func
 )
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -35,6 +35,18 @@ ROLES_CREATABLE_BY = {
 }
 
 
+class Department(Base):
+    __tablename__ = "departments"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(120), nullable=False, unique=True, index=True)
+    __table_args__ = (Index("uq_departments_name_lower", func.lower(name), unique=True),)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now(), nullable=False)
+
+    users = relationship("User", back_populates="department")
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -47,7 +59,9 @@ class User(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     parent_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    department_id = Column(Integer, ForeignKey("departments.id"), nullable=True, index=True)
     parent = relationship("User", remote_side=[id], backref="direct_reports")
+    department = relationship("Department", back_populates="users")
 
     time_entries = relationship("TimeEntry", back_populates="user")
 

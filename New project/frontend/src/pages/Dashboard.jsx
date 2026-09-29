@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { listUsers, listTimeEntries, listScreenshots, createUser, updateUser } from "../api";
+import { getCurrentUser, listUsers, listTimeEntries, listScreenshots, listDepartments, createUser, updateUser } from "../api";
 
 const roleLabels = { admin: "Admin", manager: "Manager", tl: "Team Lead", user: "User" };
 const parentRoles = { admin: "superadmin", manager: "admin", tl: "manager", user: "tl" };
@@ -54,6 +54,8 @@ export default function Dashboard() {
   const navigate = useNavigate();
 
   const [users, setUsers] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [currentUser, setCurrentUser] = useState(null);
   const [entries, setEntries] = useState([]);
   const [screenshots, setScreenshots] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -64,17 +66,18 @@ export default function Dashboard() {
   const [dateFilter, setDateFilter] = useState(todayStr());
 
   const [showAddModal, setShowAddModal] = useState(false);
-  const [newMember, setNewMember] = useState({ name: "", email: "", password: "", role: "user", parent_id: "" });
+  const [newMember, setNewMember] = useState({ name: "", email: "", password: "", role: "user", parent_id: "", department_id: "" });
   const [addError, setAddError] = useState("");
   const [saving, setSaving] = useState(false);
   const [showUpdateModal, setShowUpdateModal] = useState(false);
-  const [updateMember, setUpdateMember] = useState({ id: "", name: "", role: "user", parent_id: "" });
+  const [updateMember, setUpdateMember] = useState({ id: "", name: "", role: "user", parent_id: "", department_id: "" });
   const [updateError, setUpdateError] = useState("");
 
   async function loadAll() {
     setLoading(true);
-    const u = await listUsers();
+    const [u, departmentList] = await Promise.all([listUsers(), listDepartments()]);
     setUsers(u);
+    setDepartments(departmentList);
     const [e, s] = await Promise.all([listTimeEntries(), listScreenshots()]);
     setEntries(e);
     setScreenshots(s);
@@ -82,6 +85,7 @@ export default function Dashboard() {
   }
 
   useEffect(() => {
+    getCurrentUser().then(setCurrentUser).catch(() => setCurrentUser(null));
     loadAll();
     const interval = setInterval(loadAll, 30000); // keep live times fresh
     const clock = setInterval(() => setNow(Date.now()), 5000);
@@ -139,9 +143,9 @@ export default function Dashboard() {
     setAddError("");
     setSaving(true);
     try {
-      await createUser(newMember);
+      await createUser({ ...newMember, parent_id: Number(newMember.parent_id), department_id: Number(newMember.department_id) });
       setShowAddModal(false);
-      setNewMember({ name: "", email: "", password: "", role: "user", parent_id: "" });
+      setNewMember({ name: "", email: "", password: "", role: "user", parent_id: "", department_id: "" });
       await loadAll();
     } catch (err) {
       setAddError(err.message);
@@ -150,10 +154,9 @@ export default function Dashboard() {
     }
   }
 
-  function openUpdateModal() {
-    const member = users[0];
+  function openUpdateModal(member = users[0]) {
     if (!member) return;
-    setUpdateMember({ id: member.id, name: member.name, role: member.role, parent_id: member.parent_id || "" });
+    setUpdateMember({ id: member.id, name: member.name, role: member.role, parent_id: member.parent_id || "", department_id: member.department_id || "" });
     setUpdateError("");
     setShowUpdateModal(true);
   }
@@ -161,7 +164,7 @@ export default function Dashboard() {
   function handleUpdateMemberSelection(e) {
     const member = users.find((user) => user.id === Number(e.target.value));
     if (!member) return;
-    setUpdateMember({ id: member.id, name: member.name, role: member.role, parent_id: member.parent_id || "" });
+    setUpdateMember({ id: member.id, name: member.name, role: member.role, parent_id: member.parent_id || "", department_id: member.department_id || "" });
     setUpdateError("");
   }
 
@@ -173,6 +176,7 @@ export default function Dashboard() {
       await updateUser(updateMember.id, {
         name: updateMember.name,
         role: updateMember.role,
+        ...(updateMember.department_id ? { department_id: Number(updateMember.department_id) } : {}),
         ...(updateMember.role !== "superadmin" ? { parent_id: Number(updateMember.parent_id) } : {}),
       });
       setShowUpdateModal(false);
@@ -205,6 +209,9 @@ export default function Dashboard() {
           </select>
           <input className="header-date" type="date" value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} aria-label="Filter by date" />
           <button className="btn-primary" onClick={openUpdateModal}>✎ Update User</button>
+          {currentUser?.role === "superadmin" && (
+            <button className="btn-primary" onClick={() => navigate("/departments")}>＋ Create Department</button>
+          )}
           <button className="btn-primary" onClick={() => setShowAddModal(true)}>＋ Add Member</button>
         </div>
       </div>
@@ -252,11 +259,12 @@ export default function Dashboard() {
             <tr>
               <th>Employee</th>
               <th>Email</th>
+              <th>Department</th>
               <th>Status</th>
               <th>Current Session IP</th>
               <th>Today's Time</th>
               <th>Last Active</th>
-              <th>Action</th>
+              <th className="member-action-heading">Action</th>
             </tr>
           </thead>
           <tbody>
@@ -269,6 +277,7 @@ export default function Dashboard() {
                   </div>
                 </td>
                 <td>{r.user.email}</td>
+                <td>{r.user.department?.name || "Unassigned"}</td>
                 <td>
                   <span className={`pill pill-${r.status}`}>
                     <span className="pill-dot" /> {r.status.charAt(0).toUpperCase() + r.status.slice(1)}
@@ -277,13 +286,16 @@ export default function Dashboard() {
                 <td className="mono">{r.currentIp}</td>
                 <td className="mono">{formatClock(r.secondsToday)}</td>
                 <td>{timeAgo(r.lastActiveAt)}</td>
-                <td>
-                  <button className="btn-view" onClick={() => navigate(`/employee/${r.user.id}`)}>View</button>
+                <td className="member-action-cell">
+                  <div className="member-row-actions">
+                    <button className="btn-view" onClick={() => navigate(`/employee/${r.user.id}`)}>View</button>
+                    <button className="btn-view" onClick={() => openUpdateModal(r.user)}>Edit</button>
+                  </div>
                 </td>
               </tr>
             ))}
             {!loading && filteredRows.length === 0 && (
-              <tr><td colSpan={7} className="empty-state">No employees match your filters.</td></tr>
+              <tr><td colSpan={8} className="empty-state">No employees match your filters.</td></tr>
             )}
           </tbody>
         </table>
@@ -309,6 +321,11 @@ export default function Dashboard() {
                 <option value="tl">Team Lead</option>
                 <option value="user">User</option>
               </select>
+              <label>Department</label>
+              <select required value={newMember.department_id} onChange={(e) => setNewMember({ ...newMember, department_id: e.target.value })} disabled={!departments.length}>
+                <option value="">{departments.length ? "Select department" : "No departments available"}</option>
+                {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
+              </select>
               <label>Reports to</label>
               <select required value={newMember.parent_id} onChange={(e) => setNewMember({ ...newMember, parent_id: e.target.value })}>
                 <option value="">Select {parentRoles[newMember.role]}</option>
@@ -318,7 +335,7 @@ export default function Dashboard() {
               </select>
               <div className="modal-actions">
                 <button type="button" className="btn-secondary" onClick={() => setShowAddModal(false)}>Cancel</button>
-                <button type="submit" className="btn-primary" disabled={saving}>{saving ? "Adding..." : "Add Member"}</button>
+                <button type="submit" className="btn-primary" disabled={saving || !newMember.department_id}>{saving ? "Adding..." : "Add Member"}</button>
               </div>
             </form>
           </div>
@@ -337,14 +354,24 @@ export default function Dashboard() {
               </select>
               <label>Name</label>
               <input required value={updateMember.name} onChange={(e) => setUpdateMember({ ...updateMember, name: e.target.value })} />
+              <label>Department</label>
+              <select value={updateMember.department_id} onChange={(e) => setUpdateMember({ ...updateMember, department_id: e.target.value })}>
+                <option value="">Keep current / Unassigned</option>
+                {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
+              </select>
               <label>Role</label>
-              <select value={updateMember.role} onChange={(e) => setUpdateMember({ ...updateMember, role: e.target.value, parent_id: "" })}>
+              <select
+                value={updateMember.role}
+                disabled={Number(updateMember.id) === currentUser?.id}
+                onChange={(e) => setUpdateMember({ ...updateMember, role: e.target.value, parent_id: "" })}
+              >
                 <option value="superadmin">Super Administrator</option>
                 <option value="admin">Admin</option>
                 <option value="manager">Manager</option>
                 <option value="tl">Team Lead</option>
                 <option value="user">User</option>
               </select>
+              {Number(updateMember.id) === currentUser?.id && <p className="muted">You cannot change your own role. Ask another authorized administrator.</p>}
               {updateMember.role !== "superadmin" && (
                 <>
                   <label>Reports to</label>
