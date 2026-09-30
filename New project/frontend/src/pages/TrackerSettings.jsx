@@ -259,9 +259,7 @@ export default function TrackerSettings() {
             <button type="button" className="btn-primary" onClick={() => setActiveModal("idle")}><SettingsIcon type="pencil" /> Configure Idle Timeout</button>
           </div>
         </div>
-      </div>
 
-      <div className="ts-card-grid">
         <div className="table-card ts-card">
           <div className="ts-card-header"><div><h3>Screenshot Privacy</h3><p className="subtitle">Control image retention and masking.</p></div></div>
           <label className="profile-row"><span>Retention days</span><input type="number" min="1" max="3650" value={settings.retention_days} onChange={(e) => setSettings({ ...settings, retention_days: Number(e.target.value) })} /></label>

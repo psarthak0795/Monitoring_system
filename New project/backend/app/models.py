@@ -12,7 +12,6 @@ from .database import Base
 
 class UserRole(str, enum.Enum):
     superadmin = "superadmin"
-    super_admin = "superadmin"
     admin = "admin"
     manager = "manager"
     tl = "tl"

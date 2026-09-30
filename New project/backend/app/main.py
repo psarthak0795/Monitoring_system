@@ -11,7 +11,6 @@ from .routers import (
     auth,
     compliance,
     departments,
-    organizations,
     password_reset,
     screenshots,
     settings,
@@ -53,7 +52,6 @@ app.include_router(time_entries.router)
 app.include_router(screenshots.router)
 app.include_router(settings.router)
 app.include_router(alerts.router)
-app.include_router(organizations.router)
 app.include_router(compliance.router)
 app.include_router(password_reset.router)
 app.include_router(audit.router)

@@ -156,12 +156,11 @@ class ActivityMonitor:
         timeout_seconds=IDLE_TIMEOUT_SECONDS,
         on_pattern_change=None,
         on_synthetic_input=None,
+        on_signal=None,
     ):
         self._on_idle_change = on_idle_change
         self._on_pattern_change = on_pattern_change
         self._on_synthetic_input = on_synthetic_input
-    def __init__(self, on_idle_change, on_signal=None, timeout_seconds=IDLE_TIMEOUT_SECONDS):
-        self._on_idle_change = on_idle_change
         self._on_signal = on_signal or (lambda *_args, **_kwargs: None)
         self._timeout_seconds = timeout_seconds
         self._last_activity = time.monotonic()
@@ -227,37 +226,22 @@ class ActivityMonitor:
             self._synthetic_detected = False
             self._stop_event.clear()
             self._mouse_listener = mouse.Listener(
-                on_move=self._on_mouse_move,
+                on_move=self._mouse_activity,
                 on_click=self._on_other_input,
                 on_scroll=self._on_other_input,
             )
             self._keyboard_listener = keyboard.Listener(
-                on_press=self._on_other_input
+                on_press=self._keyboard_activity
             )
             self._mouse_listener.start()
             self._keyboard_listener.start()
             self._synthetic_input_detector.start()
-            self._thread = threading.Thread(
-                target=self._run,
-                daemon=True
-            )
-                on_move=self._mouse_activity,
-                on_click=self._activity,
-                on_scroll=self._activity,
-            )
-            self._keyboard_listener = keyboard.Listener(on_press=self._keyboard_activity)
-            self._mouse_listener.start()
-            self._keyboard_listener.start()
             self._thread = threading.Thread(target=self._run, daemon=True)
             self._thread.start()
 
     def stop(self):
         self._stop_event.set()
         self._synthetic_input_detector.stop()
-        for listener in (
-            self._mouse_listener,
-            self._keyboard_listener
-        ):
         for listener in (self._mouse_listener, self._keyboard_listener):
             if listener:
                 listener.stop()
@@ -690,7 +674,6 @@ class TrackerAgent:
                 self._handle_pattern_change,
                 self._handle_synthetic_input_change,
                 self._submit_alert,
-                self.idle_timeout_seconds,
             )
         else:
             self._activity_monitor.set_timeout(self.idle_timeout_seconds)

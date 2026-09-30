@@ -23,24 +23,24 @@ class RbacVisibilityTests(unittest.TestCase):
         department_b = models.Department(name=f"Org B {id(self)}")
         self.db.add_all([department_a, department_b])
         self.db.flush()
-        self.super_admin = models.User(name="Super", email=f"super-{id(self)}@test", hashed_password="x", role=models.UserRole.super_admin)
+        self.superadmin = models.User(name="Super", email=f"super-{id(self)}@test", hashed_password="x", role=models.UserRole.superadmin)
         self.admin = models.User(name="Admin", email=f"admin-{id(self)}@test", hashed_password="x", role=models.UserRole.admin, department_id=department_a.id)
         self.manager = models.User(name="Manager", email=f"manager-{id(self)}@test", hashed_password="x", role=models.UserRole.manager, department_id=department_a.id)
         self.employee = models.User(name="Employee", email=f"employee-{id(self)}@test", hashed_password="x", role=models.UserRole.employee, department_id=department_a.id, manager=self.manager)
         self.nested = models.User(name="Nested", email=f"nested-{id(self)}@test", hashed_password="x", role=models.UserRole.employee, department_id=department_a.id, manager=self.employee)
         self.other = models.User(name="Other", email=f"other-{id(self)}@test", hashed_password="x", role=models.UserRole.employee, department_id=department_b.id)
-        self.db.add_all([self.super_admin, self.admin, self.manager, self.employee, self.nested, self.other])
+        self.db.add_all([self.superadmin, self.admin, self.manager, self.employee, self.nested, self.other])
         self.db.commit()
 
     def tearDown(self):
         self.db.rollback()
         self.db.close()
 
-    def test_super_admin_sees_everyone(self):
-        visible = visible_user_filter(self.db.query(models.User), self.super_admin).all()
-        self.assertEqual({user.email for user in visible}, {user.email for user in [self.super_admin, self.admin, self.manager, self.employee, self.nested, self.other]})
+    def test_superadmin_sees_everyone(self):
+        visible = visible_user_filter(self.db.query(models.User), self.superadmin).all()
+        self.assertEqual({user.email for user in visible}, {user.email for user in [self.superadmin, self.admin, self.manager, self.employee, self.nested, self.other]})
 
-    def test_admin_sees_only_organization_and_not_super_admin(self):
+    def test_admin_sees_only_organization_and_not_superadmin(self):
         visible = visible_user_filter(self.db.query(models.User), self.admin).all()
         self.assertEqual({user.email for user in visible}, {self.admin.email, self.manager.email, self.employee.email, self.nested.email})
 

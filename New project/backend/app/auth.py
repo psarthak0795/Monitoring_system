@@ -84,9 +84,6 @@ def require_superadmin(user: models.User = Depends(get_current_user)) -> models.
     return user
 
 
-require_super_admin = require_superadmin
-
-
 def require_role(*allowed_roles: models.UserRole):
     """Generic dependency factory: Depends(require_role(UserRole.manager, UserRole.tl))"""
     def dependency(user: models.User = Depends(get_current_user)) -> models.User:

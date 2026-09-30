@@ -77,7 +77,7 @@ def list_screenshots(
 ):
     query = db.query(models.Screenshot)
 
-    if current_user.role in (models.UserRole.super_admin, models.UserRole.admin, models.UserRole.manager):
+    if current_user.role in (models.UserRole.superadmin, models.UserRole.admin, models.UserRole.manager):
         if user_id is not None:
             query = query.filter(models.Screenshot.user_id == user_id)
         visible_ids = [user.id for user in auth.visible_user_filter(db.query(models.User), current_user).all()]

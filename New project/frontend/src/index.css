@@ -1156,8 +1156,9 @@ body { background: #f7f9fc; color: #142039; font-family: Inter, ui-sans-serif, s
 /* ---- Tracker Settings page ---- */
 .tracker-settings-page .page-title-row { margin: 28px 0 30px; }
 .tracker-settings-page .page-title-row h1 { margin: 0; font-size: 30px; line-height: 1.1; letter-spacing: -0.02em; }
-.ts-card-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px; margin-bottom: 16px; max-width: 1000px; }
-@media (max-width: 860px) { .ts-card-grid { grid-template-columns: 1fr; } }
+.ts-card-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; margin-bottom: 16px; width: 100%; }
+@media (max-width: 1100px) { .ts-card-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 700px) { .ts-card-grid { grid-template-columns: 1fr; } }
 
 .ts-card { padding: 29px 30px; min-height: 332px; border: 1px solid #e8ebf5; box-shadow: 0 1px 2px rgba(24, 36, 60, 0.02); }
 .ts-card-header { display: flex; gap: 12px; margin-bottom: 10px; }

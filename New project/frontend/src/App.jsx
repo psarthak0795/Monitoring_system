@@ -26,6 +26,22 @@ function RequireAuth({ children }) {
   return isAuthenticated() ? children : <Navigate to="/login" replace />;
 }
 
+function RequireAdmin({ children }) {
+  const [currentUser, setCurrentUser] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    getCurrentUser()
+      .then(setCurrentUser)
+      .catch(() => setCurrentUser(null))
+      .finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <div className="loading-state">Loading...</div>;
+  if (!['superadmin', 'admin'].includes(currentUser?.role)) return <Navigate to="/" replace />;
+  return children;
+}
+
 function NavIcon({ type }) {
   const paths = {
     dashboard: <><rect x="2.5" y="2.5" width="4" height="4" rx=".5" /><rect x="9.5" y="2.5" width="4" height="4" rx=".5" /><rect x="2.5" y="9.5" width="4" height="4" rx=".5" /><rect x="9.5" y="9.5" width="4" height="4" rx=".5" /></>,
@@ -63,8 +79,7 @@ function Shell({ children }) {
           <NavLink to="/members"><NavIcon type="members" />Members</NavLink>
           <NavLink to="/employee/me"><NavIcon type="timesheets" />Profile</NavLink>
           <NavLink to="/screenshots"><NavIcon type="screenshots" />Screenshots</NavLink>
-          {(currentUser?.role === "super_admin" || currentUser?.role === "admin" || currentUser?.role === "manager") && <NavLink to="/alerts"><NavIcon type="alerts" />Security Alerts</NavLink>}
-          {(currentUser?.role === "super_admin" || currentUser?.role === "admin") && <NavLink className="management-link" to="/tracker-management"><NavIcon type="management" />Tracker Management</NavLink>}
+          {(currentUser?.role === "superadmin" || currentUser?.role === "admin") && <NavLink className="management-link" to="/tracker-management"><NavIcon type="management" />Tracker Management</NavLink>}
         </nav>
         <div className="sidebar-footer">
           <div className="admin-profile"><span className="admin-avatar">{userInitials}</span><div><strong>{currentUser?.name || "Loading..."}</strong><small>{currentUser?.email || ""}</small></div></div>
@@ -134,7 +149,9 @@ export default function App() {
           path="/tracker-management"
           element={
             <RequireAuth>
-              <Shell><TrackerSettings /></Shell>
+              <RequireAdmin>
+                <Shell><TrackerSettings /></Shell>
+              </RequireAdmin>
             </RequireAuth>
           }
         />
