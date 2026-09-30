@@ -99,6 +99,21 @@ export async function deleteDepartment(departmentId) {
   }
 }
 
+export async function listAlerts(status) {
+  const url = new URL(`${BACKEND_URL}/alerts`);
+  if (status) url.searchParams.set("status", status);
+  const resp = await fetch(url, { headers: authHeaders() });
+  return handle(resp);
+}
+
+export async function acknowledgeAlert(alertId) {
+  const resp = await fetch(`${BACKEND_URL}/alerts/${alertId}/acknowledge`, {
+    method: "POST",
+    headers: authHeaders(),
+  });
+  return handle(resp);
+}
+
 export async function listTimeEntries(userId, range) {
   const url = new URL(`${BACKEND_URL}/time-entries`);
   if (userId) url.searchParams.set("user_id", userId);

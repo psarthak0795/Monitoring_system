@@ -2,16 +2,18 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import { getCurrentUser, getUser, listTimeEntries, listScreenshots } from "../api";
 
-function toLocalDateKey(dateLike) {
-  const d = new Date(dateLike);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
 function localDay(dateStr) {
-  return toLocalDateKey(dateStr);
+  const d = new Date(dateStr);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 function todayStr() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  return localDay(new Date().toISOString());
+}
+function dayRange(dateString) {
+  const start = new Date(`${dateString}T00:00:00`);
+  const end = new Date(start);
+  end.setDate(end.getDate() + 1);
+  return { start, end };
 }
 function formatHM(seconds) {
   const h = Math.floor(seconds / 3600);
@@ -91,13 +93,24 @@ export default function EmployeeDetail() {
       .finally(() => setLoading(false));
   }, [id]);
 
-  const dayEntries = useMemo(
-    () => entries.filter((e) => localDay(e.start_time) === dateFilter).sort((a, b) => new Date(a.start_time) - new Date(b.start_time)),
-    [entries, dateFilter]
-  );
+  const [, refreshClock] = useState(0);
+  useEffect(() => {
+    const interval = setInterval(() => refreshClock((value) => value + 1), 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const selectedDay = useMemo(() => dayRange(dateFilter), [dateFilter]);
+  const dayEntries = useMemo(() => entries
+    .filter((entry) => overlapSeconds(entry, selectedDay.start, selectedDay.end) > 0)
+    .sort((a, b) => new Date(a.start_time) - new Date(b.start_time)),
+  [entries, selectedDay]);
   const dayShots = useMemo(() => screenshots.filter((s) => localDay(s.captured_at) === dateFilter), [screenshots, dateFilter]);
 
   const activeEntry = entries.find((e) => e.status === "active");
+  const workSeconds = dayEntries.reduce(
+    (sum, entry) => sum + overlapSeconds(entry, selectedDay.start, selectedDay.end),
+    0
+  );
 
   const dayBuckets = useMemo(() => {
     const anchor = new Date(`${dateFilter}T00:00:00`);
@@ -125,7 +138,6 @@ export default function EmployeeDetail() {
     });
   }, [dateFilter, dayEntries]);
 
-  const workSeconds = dayBuckets.reduce((sum, bucket) => sum + bucket.activeSeconds, 0);
   const idleSeconds = useMemo(() => {
     if (dayEntries.length === 0) return 0;
 
@@ -142,7 +154,7 @@ export default function EmployeeDetail() {
     ? Math.round(dayShots.reduce((sum, s) => sum + (s.activity_level || 0), 0) / dayShots.length)
     : 0;
 
-  // ---- Work Time chart: actual tracked activity per time bucket ----
+  // ---- Work Time chart: derived from tracked time in each bucket ----
   const buckets = useMemo(() => {
     const anchor = new Date(`${dateFilter}T00:00:00`);
     const now = new Date();
@@ -159,11 +171,11 @@ export default function EmployeeDetail() {
     };
 
     if (granularity === "daily") {
-      const bucketCount = isToday ? currentHour + 1 : 24;
-      return Array.from({ length: bucketCount }, (_, h) => {
+      return Array.from({ length: 24 }, (_, h) => {
         const rangeStart = new Date(anchor); rangeStart.setHours(h, 0, 0, 0);
         const rangeEnd = new Date(anchor); rangeEnd.setHours(h + 1, 0, 0, 0);
-        return buildBucket(rangeStart, rangeEnd, `${String(h).padStart(2, "0")}:00`);
+        const seconds = entries.reduce((sum, e) => sum + overlapSeconds(e, rangeStart, rangeEnd), 0);
+        return { label: `${String(h).padStart(2, "0")}:00`, seconds };
       });
     }
 
@@ -172,20 +184,28 @@ export default function EmployeeDetail() {
       return Array.from({ length: 7 }, (_, i) => {
         const rangeStart = new Date(weekStart); rangeStart.setDate(weekStart.getDate() + i);
         const rangeEnd = new Date(rangeStart); rangeEnd.setDate(rangeStart.getDate() + 1);
-        return buildBucket(rangeStart, rangeEnd, rangeStart.toLocaleDateString([], { weekday: "short" }));
+        const seconds = entries.reduce((sum, e) => sum + overlapSeconds(e, rangeStart, rangeEnd), 0);
+        return { label: rangeStart.toLocaleDateString([], { weekday: "short" }), seconds };
       });
     }
 
+    // monthly
     const monthStart = startOfMonth(anchor);
     const total = daysInMonth(anchor);
     return Array.from({ length: total }, (_, i) => {
       const rangeStart = new Date(monthStart); rangeStart.setDate(i + 1);
       const rangeEnd = new Date(rangeStart); rangeEnd.setDate(rangeStart.getDate() + 1);
-      return buildBucket(rangeStart, rangeEnd, String(i + 1));
+      const seconds = entries.reduce((sum, e) => sum + overlapSeconds(e, rangeStart, rangeEnd), 0);
+      return { label: String(i + 1), seconds };
     });
   }, [dayEntries, dateFilter, entries, granularity]);
 
   const maxBucketSeconds = Math.max(...buckets.map((b) => b.seconds), 60);
+  const scaleMaxSeconds = Math.max(Math.ceil(maxBucketSeconds / 900) * 900, 3600);
+  const scaleTicks = Array.from(
+    { length: scaleMaxSeconds / 900 + 1 },
+    (_, index) => scaleMaxSeconds - index * 900
+  );
 
   const sessionDateLabel = new Date(`${dateFilter}T00:00:00`).toLocaleDateString([], {
     weekday: "long", year: "numeric", month: "long", day: "numeric",
@@ -302,7 +322,8 @@ export default function EmployeeDetail() {
             </div>
           </div>
           <div className="activity-chart-scroll">
-            <div className="activity-chart-inner" style={{ minWidth: `${buckets.length * 34}px` }}>
+            <div className="activity-chart-frame" style={{ minWidth: `${buckets.length * 34 + 58}px` }}>
+              <div className="activity-chart-inner" style={{ minWidth: `${buckets.length * 34}px` }}>
               <div className="chart-plot">
                 <div className="chart-gridline" style={{ bottom: "25%" }} />
                 <div className="chart-gridline" style={{ bottom: "50%" }} />
@@ -313,12 +334,12 @@ export default function EmployeeDetail() {
                       {b.seconds > 0 ? (
                         <div
                           className="activity-bar"
-                          style={{ height: `${Math.max((b.seconds / maxBucketSeconds) * 100, 6)}%` }}
+                          style={{ height: `${Math.max((b.seconds / scaleMaxSeconds) * 100, 6)}%` }}
                         >
                           <span className="activity-bar-tip">{formatHM(b.seconds)}</span>
                         </div>
                       ) : (
-                        <div className="activity-bar-zero" title="No work" />
+                        <div className="activity-bar-zero" title="No work time" />
                       )}
                     </div>
                   ))}
@@ -327,6 +348,17 @@ export default function EmployeeDetail() {
               <div className="chart-labels">
                 {buckets.map((b) => (
                   <div key={b.label} className="chart-label-col">{b.label}</div>
+                ))}
+              </div>
+              </div>
+              <div className="chart-scale" aria-label="Work time scale">
+                {scaleTicks.map((seconds, index) => (
+                  <span
+                    key={seconds}
+                    style={{ top: `${(index / (scaleTicks.length - 1)) * 100}%` }}
+                  >
+                    {formatHM(seconds)}
+                  </span>
                 ))}
               </div>
             </div>

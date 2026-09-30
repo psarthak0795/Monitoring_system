@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from . import models
@@ -83,6 +84,9 @@ def require_superadmin(user: models.User = Depends(get_current_user)) -> models.
     return user
 
 
+require_super_admin = require_superadmin
+
+
 def require_role(*allowed_roles: models.UserRole):
     """Generic dependency factory: Depends(require_role(UserRole.manager, UserRole.tl))"""
     def dependency(user: models.User = Depends(get_current_user)) -> models.User:
@@ -90,6 +94,12 @@ def require_role(*allowed_roles: models.UserRole):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Insufficient permissions")
         return user
     return dependency
+
+
+def require_manager_or_above(user: models.User = Depends(get_current_user)) -> models.User:
+    if user.role not in (models.UserRole.superadmin, models.UserRole.admin, models.UserRole.manager):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Manager access required")
+    return user
 
 
 def get_descendant_ids(db: Session, root_id: int) -> set:
@@ -101,7 +111,7 @@ def get_descendant_ids(db: Session, root_id: int) -> set:
     while frontier:
         rows = (
             db.query(models.User.id)
-            .filter(models.User.parent_id.in_(frontier))
+            .filter(or_(models.User.parent_id.in_(frontier), models.User.manager_id.in_(frontier)))
             .all()
         )
         next_frontier = {r[0] for r in rows} - descendants
@@ -116,6 +126,16 @@ def get_visible_member_ids(db: Session, current_user: models.User) -> Optional[s
     """Return the member IDs visible to a user; None means unrestricted access."""
     if current_user.role == models.UserRole.superadmin:
         return None
+
+    if current_user.role == models.UserRole.admin:
+        if current_user.department_id is None:
+            return {current_user.id}
+        department_members = (
+            db.query(models.User.id)
+            .filter(models.User.department_id == current_user.department_id)
+            .all()
+        )
+        return {member_id for (member_id,) in department_members}
 
     if current_user.role == models.UserRole.user:
         visible_ids = {current_user.id}
@@ -155,6 +175,14 @@ def get_visible_member_ids(db: Session, current_user: models.User) -> Optional[s
         .all()
     ) if descendant_ids and visible_roles else []
     return {current_user.id, *(member_id for (member_id,) in visible_descendants)}
+
+
+def visible_user_filter(query, current_user: models.User):
+    """Restrict a user query to the members visible to the current user."""
+    visible_ids = get_visible_member_ids(query.session, current_user)
+    if visible_ids is None:
+        return query
+    return query.filter(models.User.id.in_(visible_ids))
 
 
 def get_visible_department_ids(db: Session, current_user: models.User) -> Optional[set]:

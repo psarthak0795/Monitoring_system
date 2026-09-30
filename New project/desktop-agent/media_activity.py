@@ -1,13 +1,8 @@
 """
-Detects whether video/audio is currently PLAYING in the user's foreground
-(focused) window - regardless of whether it's muted.
+Detect whether media is actively playing in the foreground Windows app.
 
-Uses Windows' built-in System Media Transport Controls (SMTC) - the same
-system behind the Now Playing media overlay/lock screen controls. Any player
-that supports it reports a real Playing/Paused status here, not audio volume.
-
-Fails safe everywhere: any missing dependency or unexpected error returns
-False, which simply falls back to normal mouse/keyboard idle detection.
+The implementation uses Windows System Media Transport Controls and fails
+safe on unsupported platforms or when the optional integrations are absent.
 """
 import asyncio
 import sys

@@ -4,6 +4,6 @@ pystray==0.19.5
 requests==2.32.3
 python-dotenv==1.0.1
 pynput==1.7.7
-pywin32==306; sys_platform == "win32"
-winsdk==1.0.0b10; sys_platform == "win32"
-psutil==6.0.0; sys_platform == "win32"
+psutil==6.0.0
+pywin32==306
+winsdk==1.0.0b10

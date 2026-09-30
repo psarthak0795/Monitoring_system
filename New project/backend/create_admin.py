@@ -6,9 +6,10 @@ Run with:  python create_admin.py
 from getpass import getpass
 
 from app import models
-from app.database import SessionLocal, engine
+from app.database import SessionLocal, engine, migrate_security_schema
 from app.auth import hash_password
 
+migrate_security_schema()
 models.Base.metadata.create_all(bind=engine)
 
 

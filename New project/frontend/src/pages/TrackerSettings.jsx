@@ -156,16 +156,33 @@ export default function TrackerSettings() {
       const payload = {
         screenshot_interval_seconds: settings.screenshot_interval_seconds,
         idle_timeout_seconds: settings.idle_timeout_seconds,
+        retention_days: settings.retention_days,
+        screenshot_masking_enabled: settings.screenshot_masking_enabled,
         [field]: seconds,
       };
       const updated = await updateSettings(payload);
       setSettings(updated);
-      setSuccess("Saved. Agents pick up the new setting within a few minutes.");
+      setSuccess("Saved. Agents pick up the new setting within about 10 seconds.");
     } catch (err) {
       setError(err.message);
     } finally {
       setSaving(false);
       setActiveModal(null);
+    }
+  }
+
+  async function handlePrivacyChange(changes) {
+    setError("");
+    setSuccess("");
+    setSaving(true);
+    try {
+      const updated = await updateSettings({ ...settings, ...changes });
+      setSettings(updated);
+      setSuccess("Privacy policy saved.");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSaving(false);
     }
   }
 
@@ -241,6 +258,15 @@ export default function TrackerSettings() {
             <span className="subtitle">Pauses idle logging</span>
             <button type="button" className="btn-primary" onClick={() => setActiveModal("idle")}><SettingsIcon type="pencil" /> Configure Idle Timeout</button>
           </div>
+        </div>
+      </div>
+
+      <div className="ts-card-grid">
+        <div className="table-card ts-card">
+          <div className="ts-card-header"><div><h3>Screenshot Privacy</h3><p className="subtitle">Control image retention and masking.</p></div></div>
+          <label className="profile-row"><span>Retention days</span><input type="number" min="1" max="3650" value={settings.retention_days} onChange={(e) => setSettings({ ...settings, retention_days: Number(e.target.value) })} /></label>
+          <label className="profile-row"><span>Blur screenshots before storage</span><input type="checkbox" checked={settings.screenshot_masking_enabled} onChange={(e) => setSettings({ ...settings, screenshot_masking_enabled: e.target.checked })} /></label>
+          <button className="btn-primary" type="button" onClick={() => handlePrivacyChange({ retention_days: settings.retention_days, screenshot_masking_enabled: settings.screenshot_masking_enabled })}>Save Privacy Policy</button>
         </div>
       </div>
 

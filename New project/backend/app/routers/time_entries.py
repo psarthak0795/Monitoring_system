@@ -95,8 +95,11 @@ def list_time_entries(
     current_user: models.User = Depends(auth.get_current_user),
 ):
     query = db.query(models.TimeEntry)
-    if current_user.role == models.UserRole.superadmin:
-        visible_ids = None
+    if current_user.role in (models.UserRole.super_admin, models.UserRole.admin, models.UserRole.manager):
+        if user_id is not None:
+            query = query.filter(models.TimeEntry.user_id == user_id)
+        visible_ids = [user.id for user in auth.visible_user_filter(db.query(models.User), current_user).all()]
+        query = query.filter(models.TimeEntry.user_id.in_(visible_ids))
     else:
         visible_ids = auth.get_visible_member_ids(db, current_user)
 

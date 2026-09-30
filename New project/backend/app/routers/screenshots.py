@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
+from PIL import Image, ImageFilter
 
 from .. import models, schemas, auth
 from ..database import get_db
@@ -28,7 +29,11 @@ def upload_screenshot(
 ):
     entry = (
         db.query(models.TimeEntry)
-        .filter(models.TimeEntry.id == time_entry_id, models.TimeEntry.user_id == current_user.id)
+        .filter(
+            models.TimeEntry.id == time_entry_id,
+            models.TimeEntry.user_id == current_user.id,
+            models.TimeEntry.status == models.TimeEntryStatus.active,
+        )
         .first()
     )
     if not entry:
@@ -43,6 +48,12 @@ def upload_screenshot(
 
     with open(dest_path, "wb") as out:
         out.write(file.file.read())
+
+    settings = db.query(models.AppSettings).first()
+    if settings and settings.screenshot_masking_enabled:
+        with Image.open(dest_path) as image:
+            masked = image.convert("RGB").filter(ImageFilter.GaussianBlur(radius=10))
+            masked.save(dest_path, format="JPEG", quality=70)
 
     screenshot = models.Screenshot(
         time_entry_id=time_entry_id,
@@ -65,8 +76,12 @@ def list_screenshots(
     current_user: models.User = Depends(auth.get_current_user),
 ):
     query = db.query(models.Screenshot)
-    if current_user.role == models.UserRole.superadmin:
-        visible_ids = None
+
+    if current_user.role in (models.UserRole.super_admin, models.UserRole.admin, models.UserRole.manager):
+        if user_id is not None:
+            query = query.filter(models.Screenshot.user_id == user_id)
+        visible_ids = [user.id for user in auth.visible_user_filter(db.query(models.User), current_user).all()]
+        query = query.filter(models.Screenshot.user_id.in_(visible_ids))
     else:
         visible_ids = auth.get_visible_member_ids(db, current_user)
 

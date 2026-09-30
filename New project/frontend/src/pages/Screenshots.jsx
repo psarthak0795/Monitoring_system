@@ -12,7 +12,16 @@ import { useEffect, useState } from "react";
     const imageUrls = useScreenshotImageUrls(shots);
 
     useEffect(() => {
-      listScreenshots(userId, timeEntryId).then(setShots);
+      let mounted = true;
+      const refresh = () => listScreenshots(userId, timeEntryId).then((items) => {
+        if (mounted) setShots(items);
+      });
+      refresh();
+      const interval = setInterval(refresh, 10000);
+      return () => {
+        mounted = false;
+        clearInterval(interval);
+      };
     }, [userId, timeEntryId]);
 
     useEffect(() => {

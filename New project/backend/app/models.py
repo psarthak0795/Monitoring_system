@@ -1,9 +1,10 @@
 import enum
+from sqlalchemy import JSON
 
 from sqlalchemy import (
     Column, Integer, String, DateTime, ForeignKey, Enum, Float, Boolean, Index, func
 )
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, synonym
 from sqlalchemy.sql import func
 
 from .database import Base
@@ -11,10 +12,12 @@ from .database import Base
 
 class UserRole(str, enum.Enum):
     superadmin = "superadmin"
+    super_admin = "superadmin"
     admin = "admin"
     manager = "manager"
     tl = "tl"
     user = "user"
+    employee = "user"
 
 
 ROLE_HIERARCHY = {
@@ -45,6 +48,7 @@ class Department(Base):
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now(), nullable=False)
 
     users = relationship("User", back_populates="department")
+    consents = relationship("ConsentRecord", back_populates="department")
 
 
 class User(Base):
@@ -59,11 +63,16 @@ class User(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     parent_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    manager_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     department_id = Column(Integer, ForeignKey("departments.id"), nullable=True, index=True)
-    parent = relationship("User", remote_side=[id], backref="direct_reports")
+    organization_id = synonym("department_id")
+    parent = relationship("User", remote_side=[id], foreign_keys=[parent_id], backref="direct_reports")
     department = relationship("Department", back_populates="users")
 
     time_entries = relationship("TimeEntry", back_populates="user")
+    manager = relationship("User", remote_side=[id], foreign_keys=[manager_id], back_populates="reports")
+    reports = relationship("User", foreign_keys=[manager_id], back_populates="manager")
+    audit_events = relationship("AuditEvent", back_populates="actor")
 
 
 class Project(Base):
@@ -128,3 +137,74 @@ class AppSettings(Base):
     screenshot_interval_seconds = Column(Integer, nullable=False, default=300)
     idle_timeout_seconds = Column(Integer, nullable=False, default=300)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
+    retention_days = Column(Integer, nullable=False, default=90)
+    screenshot_masking_enabled = Column(Boolean, nullable=False, default=False)
+
+
+class AuditEvent(Base):
+    __tablename__ = "audit_events"
+
+    id = Column(Integer, primary_key=True, index=True)
+    actor_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)
+    action = Column(String, nullable=False, index=True)
+    target_type = Column(String, nullable=False)
+    target_id = Column(String, nullable=True)
+    details = Column(JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+
+    actor = relationship("User", back_populates="audit_events")
+
+
+class ConsentRecord(Base):
+    __tablename__ = "consent_records"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    department_id = Column(Integer, ForeignKey("departments.id"), nullable=True, index=True)
+    organization_id = synonym("department_id")
+    policy_version = Column(String, nullable=False)
+    accepted_at = Column(DateTime(timezone=True), server_default=func.now())
+    ip_address = Column(String, nullable=True)
+
+    user = relationship("User")
+    department = relationship("Department", back_populates="consents")
+
+
+class PasswordResetToken(Base):
+    __tablename__ = "password_reset_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    token_hash = Column(String, nullable=False, unique=True, index=True)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    used_at = Column(DateTime(timezone=True), nullable=True)
+
+    user = relationship("User")
+
+
+class AlertSeverity(str, enum.Enum):
+    info = "info"
+    warning = "warning"
+    critical = "critical"
+
+
+class AlertStatus(str, enum.Enum):
+    open = "open"
+    acknowledged = "acknowledged"
+    resolved = "resolved"
+
+
+class Alert(Base):
+    __tablename__ = "alerts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    alert_type = Column(String, nullable=False, index=True)
+    severity = Column(Enum(AlertSeverity), default=AlertSeverity.warning, nullable=False)
+    status = Column(Enum(AlertStatus), default=AlertStatus.open, nullable=False, index=True)
+    message = Column(String, nullable=False)
+    evidence = Column(JSON, nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    acknowledged_at = Column(DateTime(timezone=True), nullable=True)
+
+    user = relationship("User")

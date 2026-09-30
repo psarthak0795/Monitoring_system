@@ -73,7 +73,7 @@ export default function Dashboard() {
   const [updateMember, setUpdateMember] = useState({ id: "", name: "", role: "user", parent_id: "", department_id: "" });
   const [updateError, setUpdateError] = useState("");
 
-  async function loadAll() {
+  async function loadAll(viewer = currentUser) {
     setLoading(true);
     const [u, departmentList] = await Promise.all([listUsers(), listDepartments()]);
     setUsers(u);

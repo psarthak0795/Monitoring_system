@@ -151,7 +151,16 @@ powershell -NoProfile -Command "(Get-Content 'frontend\.env') -replace 'http://l
 echo.
 echo === Setup complete for this computer ===
 echo.
-echo Existing database contents were not changed.
+echo Ensuring the PostgreSQL database and tables are ready for this project.
+pushd "backend"
+"venv\Scripts\python.exe" -c "from app.database import engine; from app import models; models.Base.metadata.create_all(bind=engine); print('PostgreSQL schema ready')"
+set "SCHEMA_EXIT=%ERRORLEVEL%"
+popd
+if not "%SCHEMA_EXIT%"=="0" (
+    echo ERROR: could not initialize the backend database schema.
+    if not defined AUTO_MODE pause
+    exit /b %SCHEMA_EXIT%
+)
 echo If the first admin account has not been created yet, run:
     echo   backend\venv\Scripts\python.exe backend\create_admin.py
     echo.

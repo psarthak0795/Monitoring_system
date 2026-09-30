@@ -4,9 +4,22 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from . import models
-from .database import engine, migrate_schema
-from .routers import auth, users, time_entries, screenshots, settings, departments
+from .database import engine, migrate_schema, migrate_security_schema
+from .routers import (
+    alerts,
+    audit,
+    auth,
+    compliance,
+    departments,
+    organizations,
+    password_reset,
+    screenshots,
+    settings,
+    time_entries,
+    users,
+)
 
+migrate_security_schema()
 models.Base.metadata.create_all(bind=engine)
 migrate_schema()
 
@@ -39,6 +52,35 @@ app.include_router(departments.router)
 app.include_router(time_entries.router)
 app.include_router(screenshots.router)
 app.include_router(settings.router)
+app.include_router(alerts.router)
+app.include_router(organizations.router)
+app.include_router(compliance.router)
+app.include_router(password_reset.router)
+app.include_router(audit.router)
+
+
+@app.on_event("startup")
+def cleanup_expired_screenshots():
+    from datetime import datetime, timedelta, timezone
+    from sqlalchemy import delete
+    from .database import SessionLocal
+
+    db = SessionLocal()
+    try:
+        settings = db.query(models.AppSettings).first()
+        retention_days = settings.retention_days if settings else 90
+        cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+        old = db.query(models.Screenshot).filter(models.Screenshot.captured_at < cutoff).all()
+        for screenshot in old:
+            try:
+                os.remove(screenshot.file_path)
+            except OSError:
+                pass
+            db.delete(screenshot)
+        if old:
+            db.commit()
+    finally:
+        db.close()
 
 
 @app.get("/health")

@@ -209,6 +209,13 @@ port is now centralized instead of repeated in multiple files.)
 
 ## Deploying across your organization
 
+The recommended central deployment is Docker Compose. Follow
+[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) to run PostgreSQL, the backend, and
+the production dashboard together. The desktop agent remains a native Windows
+executable on each employee computer because it needs access to that
+computer's screen, input, foreground applications, lock state, and sleep/wake
+state.
+
 This is the part that turns the local demo above into something installed
 on every employee's PC. Three phases:
 
@@ -324,11 +331,10 @@ jurisdictions. Before rolling this out to real staff:
 
 ## What's intentionally left out (natural next steps)
 
-- Idle-time detection (pause capture after N minutes of no input).
-- Blurring/redacting sensitive screen regions before upload.
 - A signed installer (current packaging is a plain .exe — Windows
   SmartScreen may warn on first run since it's unsigned; code-signing
   removes that warning but requires a certificate).
+- Blurring/redacting sensitive screen regions before upload.
 - macOS/Ubuntu auto-start scripts (the agent runs on both; the auto-start
   wiring above is Windows-only so far).
 - Retry/queueing for screenshot uploads that fail (e.g. backend briefly

@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from .. import models, schemas, auth
 from ..database import get_db
+from ..audit import record
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -108,6 +109,7 @@ def create_user(
     )
     db.add(user)
     db.commit()
+    record(db, current_user, "user.created", "user", details={"email": user.email, "role": user.role.value})
     db.refresh(user)
     return user
 

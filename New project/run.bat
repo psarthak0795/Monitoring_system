@@ -164,6 +164,18 @@ if not exist "%AUTOSTART_SHORTCUT%" (
     echo.
 )
 
+echo Ensuring the PostgreSQL database and tables are ready...
+pushd "backend"
+"venv\Scripts\python.exe" -c "from app.database import engine; from app import models; models.Base.metadata.create_all(bind=engine); print('PostgreSQL schema ready')"
+set "SCHEMA_EXIT=%ERRORLEVEL%"
+popd
+if not "%SCHEMA_EXIT%"=="0" (
+    echo ERROR: could not initialize the backend database schema.
+    echo Run setup.bat to install the backend dependencies, then run run.bat again.
+    pause
+    exit /b %SCHEMA_EXIT%
+)
+
 echo If you have not created the first admin account yet, run:
     echo   backend\venv\Scripts\python.exe backend\create_admin.py
     echo.

@@ -41,10 +41,19 @@ MEDIA_ACTIVITY_DETECTION_ENABLED = os.getenv(
     "MEDIA_ACTIVITY_DETECTION_ENABLED", "true"
 ).lower() in ("1", "true", "yes", "on")
 MEDIA_CHECK_INTERVAL_SECONDS = int(os.getenv("MEDIA_CHECK_INTERVAL_SECONDS", "5"))
+LONG_RUNNING_ACTIVITY_DETECTION_ENABLED = os.getenv(
+    "LONG_RUNNING_ACTIVITY_DETECTION_ENABLED", "true"
+).lower() in ("1", "true", "yes", "on")
+SYSTEM_STATE_DETECTION_ENABLED = os.getenv(
+    "SYSTEM_STATE_DETECTION_ENABLED", "true"
+).lower() in ("1", "true", "yes", "on")
 SCREENSHOT_NOTIFICATIONS_ENABLED = os.getenv(
     "SCREENSHOT_NOTIFICATIONS_ENABLED", "true"
 ).lower() in ("1", "true", "yes", "on")
 AUTO_START_TRACKING = os.getenv("AUTO_START_TRACKING", "false").lower() in (
+    "1", "true", "yes", "on"
+)
+SILENT_MODE = os.getenv("SILENT_MODE", "false").lower() in (
     "1", "true", "yes", "on"
 )
 TOKEN_FILE = os.path.join(DATA_DIR, "auth_token.json")
