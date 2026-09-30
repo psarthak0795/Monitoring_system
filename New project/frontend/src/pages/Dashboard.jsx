@@ -63,7 +63,7 @@ export default function Dashboard() {
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [dateFilter, setDateFilter] = useState(todayStr());
+  const dateFilter = todayStr();
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [newMember, setNewMember] = useState({ name: "", email: "", password: "", role: "user", parent_id: "", department_id: "" });
@@ -207,7 +207,6 @@ export default function Dashboard() {
             <option value="idle">Idle</option>
             <option value="offline">Offline</option>
           </select>
-          <input className="header-date" type="date" value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} aria-label="Filter by date" />
           <button className="btn-primary" onClick={openUpdateModal}>✎ Update User</button>
           {currentUser?.role === "superadmin" && (
             <button className="btn-primary" onClick={() => navigate("/departments")}>＋ Create Department</button>

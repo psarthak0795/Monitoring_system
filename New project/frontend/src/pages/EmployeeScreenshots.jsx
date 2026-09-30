@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { getUser, listScreenshots } from "../api";
+import { getCurrentUser, getUser, listScreenshots } from "../api";
 import useScreenshotImageUrls from "../hooks/useScreenshotImageUrls";
 
 function localDay(dateStr) {
@@ -45,9 +45,10 @@ const DENSITY_TICK_HOURS = [8, 10, 12, 16, 20];
 
 export default function EmployeeScreenshots() {
   const { id, role } = useParams();
-  const userId = Number(id);
+  const isCurrentUser = id === "me";
+  const userId = isCurrentUser ? null : Number(id);
   const memberRoleNames = { admins: "Admins", managers: "Managers", "team-leads": "Team Leads", users: "Users" };
-  const detailPath = role ? `/members/${role}/${userId}` : `/employee/${userId}`;
+  const detailPath = role ? `/members/${role}/${userId}` : `/employee/${id}`;
 
   const [user, setUser] = useState(null);
   const [shots, setShots] = useState([]);
@@ -58,10 +59,12 @@ export default function EmployeeScreenshots() {
 
   useEffect(() => {
     setLoading(true);
-    Promise.all([getUser(userId), listScreenshots(userId)])
+    const userRequest = isCurrentUser ? getCurrentUser() : getUser(userId);
+    userRequest
+      .then((currentUser) => Promise.all([currentUser, listScreenshots(currentUser.id)]))
       .then(([u, s]) => { setUser(u); setShots(s); })
       .finally(() => setLoading(false));
-  }, [userId]);
+  }, [id, isCurrentUser, userId]);
 
   useEffect(() => {
     function onKeyDown(e) {

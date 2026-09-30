@@ -652,8 +652,8 @@ body { background: #f7f9fc; color: #142039; font-family: Inter, ui-sans-serif, s
 .btn-view { padding: 5px 11px; font-size: 12px; font-weight: 600; color: #fff; background: #101b31; border: 0; border-radius: 5px; }
 .btn-view:hover { background: #263653; color: #fff; border-color: transparent; }
 .table-card thead th.member-action-heading,
-.table-card tbody td.member-action-cell { width: 150px; min-width: 150px; text-align: right; }
-.member-row-actions { display: inline-flex; align-items: center; justify-content: flex-end; gap: 7px; white-space: nowrap; }
+.table-card tbody td.member-action-cell { width: 150px; min-width: 150px; text-align: center; }
+.member-row-actions { display: inline-flex; align-items: center; justify-content: center; gap: 7px; white-space: nowrap; }
 .table-footer { display: flex; align-items: center; justify-content: space-between; padding: 9px 12px; color: #8290a7; font-size: 12px; }
 .pagination { display: flex; gap: 4px; }
 .pagination button { padding: 5px 9px; border: 1px solid #e3e8f0; border-radius: 5px; background: #fff; color: #9aa6ba; font-size: 12px; }
