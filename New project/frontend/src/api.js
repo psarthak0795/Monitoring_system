@@ -47,6 +47,11 @@ export async function getUser(userId) {
   return handle(resp);
 }
 
+export async function getUserActivitySummary(userId) {
+  const resp = await fetch(`${BACKEND_URL}/users/${userId}/activity-summary`, { headers: authHeaders() });
+  return handle(resp);
+}
+
 export async function createUser(payload) {
   const resp = await fetch(`${BACKEND_URL}/users`, {
     method: "POST",

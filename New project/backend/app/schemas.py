@@ -138,6 +138,16 @@ class UserOut(BaseModel):
         from_attributes = True
 
 
+class UserActivitySummary(BaseModel):
+    status: str
+    last_activity_at: Optional[datetime] = None
+    current_ip: Optional[str] = None
+
+    @field_serializer("last_activity_at")
+    def serialize_last_activity_at(self, value: Optional[datetime]) -> Optional[str]:
+        return _as_utc_iso(value)
+
+
 class OrganizationCreate(BaseModel):
     name: str = Field(min_length=2, max_length=160)
 

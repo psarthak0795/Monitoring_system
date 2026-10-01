@@ -11,7 +11,7 @@ import {
   UserPlus,
   Users,
 } from "lucide-react";
-import { createUser, getCurrentUser, listDepartments, listTimeEntries, listUsers } from "../api";
+import { createUser, getCurrentUser, getUserActivitySummary, listDepartments, listTimeEntries, listUsers } from "../api";
 
 const roleConfig = {
   admins: {
@@ -100,6 +100,8 @@ export default function RoleMembers() {
   const [departments, setDepartments] = useState([]);
   const [entries, setEntries] = useState([]);
   const [currentUser, setCurrentUser] = useState(null);
+  const [teamLeadSummary, setTeamLeadSummary] = useState(null);
+  const [managerSummary, setManagerSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
@@ -155,6 +157,37 @@ export default function RoleMembers() {
   }, [role]);
 
   const memberById = useMemo(() => new Map(users.map((user) => [user.id, user])), [users]);
+  const displayTeamLead = currentUser?.role === "user" && config?.role === "user";
+  const displayTeamLeadId = displayTeamLead ? currentUser.parent_id : null;
+  const displayManager = currentUser?.role === "tl" && config?.role === "user";
+  const displayManagerId = displayManager
+    ? users.find((user) => user.role === "manager" && [currentUser.parent_id, currentUser.manager_id].includes(user.id))?.id
+    : null;
+
+  useEffect(() => {
+    let active = true;
+    setTeamLeadSummary(null);
+    if (!displayTeamLeadId) return () => { active = false; };
+
+    getUserActivitySummary(displayTeamLeadId)
+      .then((summary) => { if (active) setTeamLeadSummary(summary); })
+      .catch(() => { if (active) setTeamLeadSummary(null); });
+
+    return () => { active = false; };
+  }, [displayTeamLeadId]);
+
+  useEffect(() => {
+    let active = true;
+    setManagerSummary(null);
+    if (!displayManagerId) return () => { active = false; };
+
+    getUserActivitySummary(displayManagerId)
+      .then((summary) => { if (active) setManagerSummary(summary); })
+      .catch(() => { if (active) setManagerSummary(null); });
+
+    return () => { active = false; };
+  }, [displayManagerId]);
+
   const latestActivity = useMemo(() => {
     const latest = new Map();
     entries.forEach((entry) => {
@@ -169,11 +202,13 @@ export default function RoleMembers() {
   const filteredUsers = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     return users.filter((user) => {
-      if (user.role !== config?.role) return false;
-      if (parentFilter !== "all" && String(user.parent_id) !== parentFilter) return false;
+      const isDisplayOnlyTeamLead = displayTeamLead && user.id === currentUser.parent_id && user.role === "tl";
+      const isDisplayOnlyManager = displayManager && user.id === displayManagerId && user.role === "manager";
+      if (user.role !== config?.role && !isDisplayOnlyTeamLead && !isDisplayOnlyManager) return false;
+      if (!isDisplayOnlyTeamLead && !isDisplayOnlyManager && parentFilter !== "all" && String(user.parent_id) !== parentFilter) return false;
       return !normalizedQuery || `${user.name} ${user.email} ${user.id} ${user.department?.name || ""}`.toLowerCase().includes(normalizedQuery);
     });
-  }, [users, config, query, parentFilter]);
+  }, [users, config, query, parentFilter, displayTeamLead, displayManager, displayManagerId, currentUser]);
 
   useEffect(() => setPage(1), [role, query, parentFilter]);
 
@@ -301,13 +336,19 @@ export default function RoleMembers() {
               </thead>
               <tbody>
                 {loading ? <tr><td colSpan={7} className="rm-empty">Loading members...</td></tr> : pageUsers.map((member) => {
+                  const isDisplayOnlyTeamLead = displayTeamLead && member.id === currentUser.parent_id && member.role === "tl";
+                  const isDisplayOnlyManager = displayManager && member.id === displayManagerId && member.role === "manager";
+                  const isDisplayOnlyParent = isDisplayOnlyTeamLead || isDisplayOnlyManager;
                   const directReports = users.filter((user) => user.parent_id === member.id);
-                  const lastSeen = latestActivity.get(member.id);
+                  const parentSummary = isDisplayOnlyManager ? managerSummary : teamLeadSummary;
+                  const lastSeen = isDisplayOnlyParent ? parentSummary?.last_activity_at : latestActivity.get(member.id);
                   const parent = memberById.get(member.parent_id);
                   const directReportsForRole = directReports.filter((user) => user.role === config.nextRole);
                   const isExpanded = Boolean(config.nextRole) && expandedMemberId === member.id;
-                  const accessLabel = config.role === "user" ? "Employee access" : null;
-                  const liveStatus = !member.is_active ? "inactive" : liveStatusById.get(member.id) || "offline";
+                  const accessLabel = isDisplayOnlyTeamLead ? "Team Lead" : isDisplayOnlyManager ? "Manager" : config.role === "user" ? "Employee access" : null;
+                  const liveStatus = isDisplayOnlyParent
+                    ? parentSummary?.status || "offline"
+                    : !member.is_active ? "inactive" : liveStatusById.get(member.id) || "offline";
                   const liveStatusLabel = { active: "Active", idle: "Idle", offline: "Offline", inactive: "Inactive" }[liveStatus];
 
                   return (
@@ -315,7 +356,7 @@ export default function RoleMembers() {
                       <tr>
                         <td>
                           <div className="rm-member">
-                            <div className="rm-avatar">{initials(member.name)}<i className={`rm-dot ${liveStatus === "active" ? "on" : liveStatus === "idle" ? "away" : "off"}`} /></div>
+                            <div className="rm-avatar">{initials(member.name)}{!isDisplayOnlyParent && <i className={`rm-dot ${liveStatus === "active" ? "on" : liveStatus === "idle" ? "away" : "off"}`} />}</div>
                             <div><div className="rm-name">{member.name}</div><div className="rm-sub">{roleLabels[member.role] || member.role}</div></div>
                           </div>
                         </td>
@@ -338,7 +379,15 @@ export default function RoleMembers() {
                         </td>
                         <td><span className="rm-reports-to">{parent?.name || "-"}</span></td>
                         <td><span className={`rm-status ${liveStatus}`}>{liveStatusLabel}</span><span className="rm-time">{timeAgo(lastSeen)}</span></td>
-                        <td className="rm-td-right"><Link className="rm-view-btn" to={`/members/${role}/${member.id}`}><Eye size={13} aria-hidden="true" />View</Link></td>
+                        <td className="rm-td-right">
+                          {isDisplayOnlyParent ? (
+                            <button type="button" className="rm-view-btn" disabled title={`You cannot view your ${isDisplayOnlyManager ? "manager" : "team lead"}'s profile`}>
+                              <Eye size={13} aria-hidden="true" />View
+                            </button>
+                          ) : (
+                            <Link className="rm-view-btn" to={`/members/${role}/${member.id}`}><Eye size={13} aria-hidden="true" />View</Link>
+                          )}
+                        </td>
                       </tr>
                       {isExpanded && (
                         <tr className="rm-report-row">

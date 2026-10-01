@@ -134,29 +134,6 @@ def get_visible_member_ids(db: Session, current_user: models.User) -> Optional[s
         )
         return {member_id for (member_id,) in department_members}
 
-    if current_user.role == models.UserRole.user:
-        visible_ids = {current_user.id}
-        team_lead = (
-            db.query(models.User)
-            .filter(
-                models.User.id == current_user.parent_id,
-                models.User.role == models.UserRole.tl,
-            )
-            .first()
-        )
-        if team_lead:
-            visible_ids.add(team_lead.id)
-            teammates = (
-                db.query(models.User.id)
-                .filter(
-                    models.User.parent_id == team_lead.id,
-                    models.User.role == models.UserRole.user,
-                )
-                .all()
-            )
-            visible_ids.update(member_id for (member_id,) in teammates)
-        return visible_ids
-
     visible_roles = {
         models.UserRole.admin: {models.UserRole.manager, models.UserRole.tl, models.UserRole.user},
         models.UserRole.manager: {models.UserRole.tl, models.UserRole.user},
@@ -172,6 +149,35 @@ def get_visible_member_ids(db: Session, current_user: models.User) -> Optional[s
         .all()
     ) if descendant_ids and visible_roles else []
     return {current_user.id, *(member_id for (member_id,) in visible_descendants)}
+
+
+def get_dashboard_visible_member_ids(db: Session, current_user: models.User) -> set:
+    """Members visible on dashboard views, including assigned parent summaries."""
+    visible_ids = set(get_visible_member_ids(db, current_user) or set())
+    if current_user.role == models.UserRole.tl:
+        manager_ids = {user_id for user_id in (current_user.parent_id, current_user.manager_id) if user_id is not None}
+        if manager_ids:
+            managers = (
+                db.query(models.User)
+                .filter(
+                    models.User.id.in_(manager_ids),
+                    models.User.role == models.UserRole.manager,
+                )
+                .all()
+            )
+            visible_ids.update(manager.id for manager in managers)
+    if current_user.role == models.UserRole.manager and current_user.parent_id is not None:
+        parent_admin = (
+            db.query(models.User)
+            .filter(
+                models.User.id == current_user.parent_id,
+                models.User.role == models.UserRole.admin,
+            )
+            .first()
+        )
+        if parent_admin:
+            visible_ids.add(parent_admin.id)
+    return visible_ids
 
 
 def visible_user_filter(query, current_user: models.User):

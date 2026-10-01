@@ -1,9 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { getCurrentUser, listUsers, listTimeEntries, listScreenshots, listDepartments, createUser, updateUser } from "../api";
+import { getCurrentUser, getUserActivitySummary, listUsers, listTimeEntries, listScreenshots, listDepartments, createUser, updateUser } from "../api";
 
 const roleLabels = { admin: "Admin", manager: "Manager", tl: "Team Lead", user: "User" };
 const parentRoles = { admin: "superadmin", manager: "admin", tl: "manager", user: "tl" };
+
+function sameId(left, right) {
+  return left != null && right != null && Number(left) === Number(right);
+}
 
 function formatClock(seconds) {
   const h = Math.floor(seconds / 3600);
@@ -56,6 +60,9 @@ export default function Dashboard() {
   const [users, setUsers] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [currentUser, setCurrentUser] = useState(null);
+  const [teamLeadSummary, setTeamLeadSummary] = useState(null);
+  const [managerSummary, setManagerSummary] = useState(null);
+  const [adminSummary, setAdminSummary] = useState(null);
   const [entries, setEntries] = useState([]);
   const [screenshots, setScreenshots] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -72,6 +79,7 @@ export default function Dashboard() {
   const [showUpdateModal, setShowUpdateModal] = useState(false);
   const [updateMember, setUpdateMember] = useState({ id: "", name: "", role: "user", parent_id: "", department_id: "" });
   const [updateError, setUpdateError] = useState("");
+  const [selectedSummaryMember, setSelectedSummaryMember] = useState(null);
 
   async function loadAll(viewer = currentUser) {
     setLoading(true);
@@ -95,8 +103,51 @@ export default function Dashboard() {
     };
   }, []);
 
+  useEffect(() => {
+    let active = true;
+    setTeamLeadSummary(null);
+    setManagerSummary(null);
+    setAdminSummary(null);
+    const teamLead = users.find((user) => user.id === currentUser?.parent_id && user.role === "tl");
+    if (currentUser?.role === "manager") {
+      const admin = users.find((user) => user.role === "admin" && sameId(currentUser.parent_id, user.id));
+      if (!admin) return () => { active = false; };
+      getUserActivitySummary(admin.id)
+        .then((summary) => { if (active) setAdminSummary(summary); })
+        .catch(() => { if (active) setAdminSummary(null); });
+      return () => { active = false; };
+    }
+    if (currentUser?.role === "tl") {
+      const manager = users.find((user) => user.role === "manager" && [currentUser.parent_id, currentUser.manager_id].some((managerId) => sameId(managerId, user.id)));
+      if (!manager) return () => { active = false; };
+      getUserActivitySummary(manager.id)
+        .then((summary) => { if (active) setManagerSummary(summary); })
+        .catch(() => { if (active) setManagerSummary(null); });
+      return () => { active = false; };
+    }
+    if (currentUser?.role !== "user" || !teamLead) return () => { active = false; };
+
+    Promise.all([
+      getUserActivitySummary(teamLead.id).catch(() => null),
+      teamLead.parent_id ? getUserActivitySummary(teamLead.parent_id).catch(() => null) : Promise.resolve(null),
+    ]).then(([teamLeadData, managerData]) => {
+      if (active) {
+        setTeamLeadSummary(teamLeadData);
+        setManagerSummary(managerData);
+      }
+    });
+
+    return () => { active = false; };
+  }, [users, currentUser?.id, currentUser?.parent_id, currentUser?.role]);
+
   const rows = useMemo(() => {
+    const directTeamLead = users.find((user) => user.id === currentUser?.parent_id && user.role === "tl");
     return users.map((u) => {
+      const isDirectTeamLead = currentUser?.role === "user" && u.id === currentUser.parent_id && u.role === "tl";
+      const isTeamLeadManager = currentUser?.role === "user" && u.role === "manager" && directTeamLead?.parent_id === u.id;
+      const isDirectParentManager = currentUser?.role === "tl" && u.role === "manager" && [currentUser.parent_id, currentUser.manager_id].some((managerId) => sameId(managerId, u.id));
+      const isDirectParentAdmin = currentUser?.role === "manager" && u.role === "admin" && sameId(currentUser.parent_id, u.id);
+      const canViewActivitySummary = isDirectTeamLead || isTeamLeadManager || isDirectParentManager || isDirectParentAdmin;
       const userEntries = entries.filter((e) => e.user_id === u.id);
       const activeEntry = userEntries.find((e) => e.status === "active");
       const entriesToday = userEntries.filter((e) => localDay(e.start_time) === dateFilter);
@@ -110,33 +161,65 @@ export default function Dashboard() {
       const heartbeatAt = activeEntry?.last_seen_at ? new Date(activeEntry.last_seen_at).getTime() : 0;
       const isLive = heartbeatAt > 0 && now - heartbeatAt <= HEARTBEAT_TIMEOUT_MS;
 
-      let status = "offline";
-      if (activeEntry && isLive) {
+      let status = isDirectTeamLead
+        ? teamLeadSummary?.status || "offline"
+        : isTeamLeadManager || isDirectParentManager ? managerSummary?.status || "offline"
+          : isDirectParentAdmin ? adminSummary?.status || "offline" : "offline";
+      if (!isDirectTeamLead && !isTeamLeadManager && !isDirectParentManager && !isDirectParentAdmin && activeEntry && isLive) {
         status = activeEntry.is_idle ? "idle" : "active";
       }
 
-      return { user: u, status, currentIp: isLive ? activeEntry?.start_ip_address || "-" : "-", secondsToday, lastActiveAt };
+      const activityRestricted = (currentUser?.role === "user" && u.id !== currentUser.id) || isDirectParentManager || isDirectParentAdmin;
+      const statusVisible = !activityRestricted || isDirectTeamLead || isTeamLeadManager || isDirectParentManager || isDirectParentAdmin;
+      const lastActiveVisible = !activityRestricted || isDirectTeamLead || isDirectParentManager || isDirectParentAdmin;
+      const currentIpVisible = !activityRestricted || isTeamLeadManager || isDirectParentManager || isDirectParentAdmin;
+      const visibleLastActiveAt = isDirectTeamLead ? teamLeadSummary?.last_activity_at : isTeamLeadManager || isDirectParentManager ? managerSummary?.last_activity_at : isDirectParentAdmin ? adminSummary?.last_activity_at : lastActiveAt;
+      return {
+        user: u,
+        status,
+        currentIp: isTeamLeadManager || isDirectParentManager
+          ? managerSummary?.current_ip || "-"
+          : isDirectParentAdmin ? adminSummary?.current_ip || "-"
+          : !activityRestricted && isLive ? activeEntry?.start_ip_address || "-" : "-",
+        secondsToday,
+        lastActiveAt: visibleLastActiveAt,
+        activityRestricted,
+        statusVisible,
+        lastActiveVisible,
+        currentIpVisible,
+        isDirectTeamLead,
+        isTeamLeadManager,
+        isDirectParentManager,
+        isDirectParentAdmin,
+        canViewActivitySummary,
+      };
     });
-  }, [users, entries, screenshots, dateFilter, now]);
+  }, [users, entries, screenshots, dateFilter, now, currentUser, teamLeadSummary, managerSummary]);
 
   const filteredRows = useMemo(() => {
     return rows.filter((r) => {
       const q = search.toLowerCase();
       const matchesSearch = r.user.name.toLowerCase().includes(q) || r.user.email.toLowerCase().includes(q);
-      const matchesStatus = statusFilter === "all" || r.status === statusFilter;
+      const matchesStatus = statusFilter === "all" || (!r.activityRestricted && r.status === statusFilter);
       return matchesSearch && matchesStatus;
     });
   }, [rows, search, statusFilter]);
 
-  const stats = useMemo(() => ({
-    total: users.length,
-    activeNow: rows.filter((r) => r.status === "active").length,
-    idleNow: rows.filter((r) => r.status === "idle").length,
-    offlineNow: rows.filter((r) => r.status === "offline").length,
-    totalSeconds: rows.reduce((sum, r) => sum + r.secondsToday, 0),
-  }), [rows, users]);
+  const stats = useMemo(() => {
+    const activityRows = rows.filter((row) => !row.activityRestricted);
+    return {
+      total: activityRows.length,
+      activeNow: activityRows.filter((row) => row.status === "active").length,
+      idleNow: activityRows.filter((row) => row.status === "idle").length,
+      offlineNow: activityRows.filter((row) => row.status === "offline").length,
+      totalSeconds: activityRows.reduce((sum, row) => sum + row.secondsToday, 0),
+    };
+  }, [rows]);
 
   const trackerRunning = stats.activeNow + stats.idleNow > 0;
+  const selectedSummary = selectedSummaryMember?.role === "admin"
+    ? adminSummary
+    : selectedSummaryMember?.role === "manager" ? managerSummary : teamLeadSummary;
 
   async function handleAddMember(e) {
     e.preventDefault();
@@ -271,24 +354,31 @@ export default function Dashboard() {
               <tr key={r.user.id}>
                 <td>
                   <div className="name-cell">
-                    <span className={`avatar-sm avatar-${r.status}`}>{r.user.name.charAt(0).toUpperCase()}</span>
+                    <span className={`avatar-sm${r.statusVisible ? ` avatar-${r.status}` : ""}`}>{r.user.name.charAt(0).toUpperCase()}</span>
                     <div><strong>{r.user.name}</strong><small>{roleLabels[r.user.role] || r.user.role}</small></div>
                   </div>
                 </td>
                 <td>{r.user.email}</td>
                 <td>{r.user.department?.name || "Unassigned"}</td>
-                <td>
+                <td>{!r.statusVisible ? "—" : (
                   <span className={`pill pill-${r.status}`}>
                     <span className="pill-dot" /> {r.status.charAt(0).toUpperCase() + r.status.slice(1)}
                   </span>
-                </td>
-                <td className="mono">{r.currentIp}</td>
-                <td className="mono">{formatClock(r.secondsToday)}</td>
-                <td>{timeAgo(r.lastActiveAt)}</td>
+                )}</td>
+                <td className="mono">{r.currentIpVisible ? r.currentIp : "—"}</td>
+                <td className="mono">{r.activityRestricted ? "—" : formatClock(r.secondsToday)}</td>
+                <td>{!r.lastActiveVisible ? "—" : timeAgo(r.lastActiveAt)}</td>
                 <td className="member-action-cell">
                   <div className="member-row-actions">
-                    <button className="btn-view" onClick={() => navigate(`/employee/${r.user.id}`)}>View</button>
-                    <button className="btn-view" onClick={() => openUpdateModal(r.user)}>Edit</button>
+                    <button
+                      className="btn-view"
+                      disabled={r.activityRestricted && !r.canViewActivitySummary}
+                      title={r.canViewActivitySummary ? `View ${roleLabels[r.user.role] || "member"} summary` : r.activityRestricted ? `You cannot view this ${roleLabels[r.user.role] || "member"}'s profile` : "View employee details"}
+                      onClick={() => r.canViewActivitySummary ? setSelectedSummaryMember(r.user) : navigate(`/employee/${r.user.id}`)}
+                    >View</button>
+                    {currentUser?.role !== "user" && !r.isDirectParentManager && !r.isDirectParentAdmin && (
+                      <button className="btn-view" onClick={() => openUpdateModal(r.user)}>Edit</button>
+                    )}
                   </div>
                 </td>
               </tr>
@@ -387,6 +477,23 @@ export default function Dashboard() {
                 <button type="submit" className="btn-primary" disabled={saving}>{saving ? "Updating..." : "Update User"}</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {selectedSummaryMember && (
+        <div className="modal-overlay" onClick={() => setSelectedSummaryMember(null)}>
+          <div className="modal-box" onClick={(e) => e.stopPropagation()}>
+            <h3>{roleLabels[selectedSummaryMember.role] || "Member"} Summary</h3>
+            <p><strong>{selectedSummaryMember.name}</strong></p>
+            <p>{selectedSummaryMember.email}</p>
+            <p>Department: {selectedSummaryMember.department?.name || "Unassigned"}</p>
+            <p>Status: {selectedSummary?.status || "Offline"}</p>
+            <p>Current Session IP: {selectedSummary?.current_ip || "-"}</p>
+            <p>Last Active: {timeAgo(selectedSummary?.last_activity_at)}</p>
+            <div className="modal-actions">
+              <button type="button" className="btn-secondary" onClick={() => setSelectedSummaryMember(null)}>Close</button>
+            </div>
           </div>
         </div>
       )}

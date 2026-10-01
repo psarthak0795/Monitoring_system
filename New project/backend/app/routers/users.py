@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -73,11 +74,36 @@ def list_users(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_user),
 ):
-    """Return only members visible within the current user's role scope."""
+    """Return dashboard identities within scope, including an employee's team lead."""
     if current_user.role == models.UserRole.superadmin:
         return db.query(models.User).all()
 
-    visible_ids = auth.get_visible_member_ids(db, current_user)
+    visible_ids = auth.get_dashboard_visible_member_ids(db, current_user)
+    if current_user.role == models.UserRole.user and current_user.parent_id:
+        team_lead = (
+            db.query(models.User)
+            .filter(
+                models.User.id == current_user.parent_id,
+                models.User.role == models.UserRole.tl,
+            )
+            .first()
+        )
+        if team_lead:
+            visible_ids.add(team_lead.id)
+            if team_lead.parent_id:
+                visible_ids.add(team_lead.parent_id)
+    if current_user.role == models.UserRole.tl:
+        manager_ids = {user_id for user_id in (current_user.parent_id, current_user.manager_id) if user_id is not None}
+        if manager_ids:
+            managers = (
+                db.query(models.User)
+                .filter(
+                    models.User.id.in_(manager_ids),
+                    models.User.role == models.UserRole.manager,
+                )
+                .all()
+            )
+            visible_ids.update(manager.id for manager in managers)
     return db.query(models.User).filter(models.User.id.in_(visible_ids)).all()
 
 
@@ -127,6 +153,76 @@ def get_user(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     return user
+
+
+@router.get("/{user_id}/activity-summary", response_model=schemas.UserActivitySummary)
+def get_user_activity_summary(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    is_direct_team_lead = (
+        current_user.role == models.UserRole.user
+        and current_user.parent_id == user.id
+        and user.role == models.UserRole.tl
+    )
+    is_direct_parent_manager = (
+        current_user.role == models.UserRole.tl
+        and user.id in (current_user.parent_id, current_user.manager_id)
+        and user.role == models.UserRole.manager
+    )
+    is_direct_parent_admin = (
+        current_user.role == models.UserRole.manager
+        and current_user.parent_id == user.id
+        and user.role == models.UserRole.admin
+    )
+    is_team_lead_manager = False
+    if current_user.role == models.UserRole.user and user.role == models.UserRole.manager and current_user.parent_id:
+        team_lead = (
+            db.query(models.User)
+            .filter(
+                models.User.id == current_user.parent_id,
+                models.User.role == models.UserRole.tl,
+            )
+            .first()
+        )
+        is_team_lead_manager = bool(team_lead and team_lead.parent_id == user.id)
+    if not is_direct_team_lead and not is_direct_parent_manager and not is_direct_parent_admin and not is_team_lead_manager and not auth.can_manage(db, current_user, user.id):
+        raise HTTPException(status_code=404, detail="User not found")
+
+    entries = (
+        db.query(models.TimeEntry)
+        .filter(models.TimeEntry.user_id == user.id)
+        .order_by(models.TimeEntry.start_time.desc())
+        .all()
+    )
+    activity_times = [
+        entry.last_seen_at or entry.end_time or entry.start_time
+        for entry in entries
+        if entry.last_seen_at or entry.end_time or entry.start_time
+    ]
+    last_activity_at = max(
+        activity_times,
+        key=lambda value: value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value,
+        default=None,
+    )
+    active_entry = next((entry for entry in entries if entry.status == models.TimeEntryStatus.active), None)
+
+    activity_status = "inactive" if not user.is_active else "offline"
+    if user.is_active and active_entry and active_entry.last_seen_at:
+        heartbeat_at = active_entry.last_seen_at
+        if heartbeat_at.tzinfo is None:
+            heartbeat_at = heartbeat_at.replace(tzinfo=timezone.utc)
+        heartbeat_age = (datetime.now(timezone.utc) - heartbeat_at).total_seconds()
+        if 0 <= heartbeat_age <= 30:
+            activity_status = "idle" if active_entry.is_idle else "active"
+
+    current_ip = active_entry.start_ip_address if activity_status in ("active", "idle") and active_entry else None
+    return {"status": activity_status, "last_activity_at": last_activity_at, "current_ip": current_ip}
 
 
 @router.patch("/{user_id}", response_model=schemas.UserOut)
