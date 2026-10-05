@@ -51,6 +51,77 @@ class RbacVisibilityTests(unittest.TestCase):
         visible = visible_user_filter(self.db.query(models.User), self.admin).all()
         self.assertEqual({user.email for user in visible}, {self.admin.email, self.manager.email, self.employee.email, self.nested.email})
 
+    def test_admin_dashboard_includes_all_departmentless_reports_but_not_other_admin_team(self):
+        other_admin = models.User(
+            name="Other Admin",
+            email=f"other-admin-{id(self)}@test",
+            hashed_password="x",
+            role=models.UserRole.admin,
+            department_id=self.other.department_id,
+        )
+        own_manager = models.User(
+            name="Departmentless Manager",
+            email=f"own-manager-{id(self)}@test",
+            hashed_password="x",
+            role=models.UserRole.manager,
+            parent=self.admin,
+        )
+        own_tl = models.User(
+            name="Departmentless TL",
+            email=f"own-tl-{id(self)}@test",
+            hashed_password="x",
+            role=models.UserRole.tl,
+            parent=own_manager,
+        )
+        own_user = models.User(
+            name="Departmentless User",
+            email=f"own-user-{id(self)}@test",
+            hashed_password="x",
+            role=models.UserRole.user,
+            parent=own_tl,
+        )
+        other_manager = models.User(
+            name="Other Manager",
+            email=f"other-manager-{id(self)}@test",
+            hashed_password="x",
+            role=models.UserRole.manager,
+            parent=other_admin,
+        )
+        other_tl = models.User(
+            name="Other TL",
+            email=f"other-tl-{id(self)}@test",
+            hashed_password="x",
+            role=models.UserRole.tl,
+            parent=other_manager,
+        )
+        other_user = models.User(
+            name="Other User",
+            email=f"other-user-{id(self)}@test",
+            hashed_password="x",
+            role=models.UserRole.user,
+            parent=other_tl,
+        )
+        self.db.add_all([
+            other_admin,
+            own_manager,
+            own_tl,
+            own_user,
+            other_manager,
+            other_tl,
+            other_user,
+        ])
+        self.db.commit()
+
+        admin_dashboard = list_users(db=self.db, current_user=self.admin)
+        other_admin_dashboard = list_users(db=self.db, current_user=other_admin)
+        admin_ids = {member.id for member in admin_dashboard}
+        other_admin_ids = {member.id for member in other_admin_dashboard}
+
+        self.assertTrue({self.admin.id, own_manager.id, own_tl.id, own_user.id}.issubset(admin_ids))
+        self.assertTrue({other_admin.id, other_manager.id, other_tl.id, other_user.id}.isdisjoint(admin_ids))
+        self.assertTrue({other_admin.id, other_manager.id, other_tl.id, other_user.id}.issubset(other_admin_ids))
+        self.assertTrue({self.admin.id, own_manager.id, own_tl.id, own_user.id}.isdisjoint(other_admin_ids))
+
     def test_manager_sees_recursive_team_only(self):
         visible = visible_user_filter(self.db.query(models.User), self.manager).all()
         self.assertEqual({user.email for user in visible}, {self.manager.email, self.employee.email, self.nested.email})

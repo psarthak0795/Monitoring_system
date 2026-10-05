@@ -127,9 +127,23 @@ def get_visible_member_ids(db: Session, current_user: models.User) -> Optional[s
     if current_user.role == models.UserRole.admin:
         department_ids = get_visible_department_ids(db, current_user)
         department_members = db.query(models.User.id).filter(
-            models.User.department_id.in_(department_ids)
+            models.User.department_id.in_(department_ids),
+            models.User.role.in_(
+                {models.UserRole.manager, models.UserRole.tl, models.UserRole.user}
+            ),
         ).all() if department_ids else []
-        return {current_user.id, *(member_id for (member_id,) in department_members)}
+        descendant_ids = get_descendant_ids(db, current_user.id)
+        descendants = db.query(models.User.id).filter(
+            models.User.id.in_(descendant_ids),
+            models.User.role.in_(
+                {models.UserRole.manager, models.UserRole.tl, models.UserRole.user}
+            ),
+        ).all() if descendant_ids else []
+        return {
+            current_user.id,
+            *(member_id for (member_id,) in department_members),
+            *(member_id for (member_id,) in descendants),
+        }
 
     visible_roles = {
         models.UserRole.admin: {models.UserRole.manager, models.UserRole.tl, models.UserRole.user},
