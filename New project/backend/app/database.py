@@ -92,6 +92,47 @@ def migrate_schema():
                 connection.execute(
                     text("UPDATE users SET parent_id = created_by_id WHERE parent_id IS NULL")
                 )
+
+    table_names = inspect(engine).get_table_names()
+    if "departments" not in table_names:
+        return
+
+    department_columns = {
+        column["name"] for column in inspect(engine).get_columns("departments")
+    }
+    if "created_by_id" not in department_columns:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "ALTER TABLE departments ADD COLUMN created_by_id INTEGER "
+                    "REFERENCES users(id)"
+                )
+            )
+
+    with engine.begin() as connection:
+        inspector = inspect(connection)
+        if engine.dialect.name == "postgresql":
+            for constraint in inspector.get_unique_constraints("departments"):
+                if constraint.get("column_names") == ["name"]:
+                    name = engine.dialect.identifier_preparer.quote(constraint["name"])
+                    connection.execute(
+                        text(f"ALTER TABLE departments DROP CONSTRAINT IF EXISTS {name}")
+                    )
+        for index in inspector.get_indexes("departments"):
+            if index.get("unique") and index.get("column_names") == ["name"]:
+                name = engine.dialect.identifier_preparer.quote(index["name"])
+                connection.execute(text(f"DROP INDEX IF EXISTS {name}"))
+        connection.execute(text("DROP INDEX IF EXISTS uq_departments_name_lower"))
+        connection.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_departments_owner_name_lower "
+            "ON departments (created_by_id, lower(name)) "
+            "WHERE created_by_id IS NOT NULL"
+        ))
+        connection.execute(text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_departments_unowned_name_lower "
+            "ON departments (lower(name)) "
+            "WHERE created_by_id IS NULL"
+        ))
  
  
 def get_db():

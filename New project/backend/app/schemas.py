@@ -72,7 +72,7 @@ class UserCreate(BaseModel):
         email: EmailStr
         password: str
         role: UserRole = UserRole.user
-        department_id: int = Field(gt=0)
+        department_id: Optional[int] = Field(default=None, gt=0)
         parent_id:Optional[int] = Field(
         default=None,
         description=(

@@ -125,14 +125,11 @@ def get_visible_member_ids(db: Session, current_user: models.User) -> Optional[s
         return None
 
     if current_user.role == models.UserRole.admin:
-        if current_user.department_id is None:
-            return {current_user.id}
-        department_members = (
-            db.query(models.User.id)
-            .filter(models.User.department_id == current_user.department_id)
-            .all()
-        )
-        return {member_id for (member_id,) in department_members}
+        department_ids = get_visible_department_ids(db, current_user)
+        department_members = db.query(models.User.id).filter(
+            models.User.department_id.in_(department_ids)
+        ).all() if department_ids else []
+        return {current_user.id, *(member_id for (member_id,) in department_members)}
 
     visible_roles = {
         models.UserRole.admin: {models.UserRole.manager, models.UserRole.tl, models.UserRole.user},
@@ -189,10 +186,31 @@ def visible_user_filter(query, current_user: models.User):
 
 
 def get_visible_department_ids(db: Session, current_user: models.User) -> Optional[set]:
-    """Departments referenced by members visible to this user."""
-    visible_member_ids = get_visible_member_ids(db, current_user)
-    if visible_member_ids is None:
+    """Return departments owned by or assigned within the user's visible scope."""
+    if current_user.role == models.UserRole.superadmin:
         return None
+
+    if current_user.role == models.UserRole.admin:
+        owned_ids = {
+            department_id
+            for (department_id,) in db.query(models.Department.id)
+            .filter(models.Department.created_by_id == current_user.id)
+            .all()
+        }
+        if current_user.department_id is not None:
+            legacy_department = (
+                db.query(models.Department.id)
+                .filter(
+                    models.Department.id == current_user.department_id,
+                    models.Department.created_by_id.is_(None),
+                )
+                .first()
+            )
+            if legacy_department:
+                owned_ids.add(legacy_department[0])
+        return owned_ids
+
+    visible_member_ids = get_visible_member_ids(db, current_user)
     if not visible_member_ids:
         return set()
     rows = (

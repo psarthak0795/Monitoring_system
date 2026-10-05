@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { getCurrentUser, getUserActivitySummary, listUsers, listTimeEntries, listScreenshots, listDepartments, createUser, updateUser } from "../api";
+import { Download } from "lucide-react";
+import { getCurrentUser, getUserActivitySummary, listUsers, listTimeEntries, listScreenshots, listDepartments, createUser, updateUser, downloadDepartmentDailyReport } from "../api";
 
 const roleLabels = { admin: "Admin", manager: "Manager", tl: "Team Lead", user: "User" };
 const parentRoles = { admin: "superadmin", manager: "admin", tl: "manager", user: "tl" };
@@ -80,6 +81,10 @@ export default function Dashboard() {
   const [updateMember, setUpdateMember] = useState({ id: "", name: "", role: "user", parent_id: "", department_id: "" });
   const [updateError, setUpdateError] = useState("");
   const [selectedSummaryMember, setSelectedSummaryMember] = useState(null);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [reportDate, setReportDate] = useState(todayStr());
+  const [reportError, setReportError] = useState("");
+  const [downloadingReport, setDownloadingReport] = useState(false);
 
   async function loadAll(viewer = currentUser) {
     setLoading(true);
@@ -226,7 +231,11 @@ export default function Dashboard() {
     setAddError("");
     setSaving(true);
     try {
-      await createUser({ ...newMember, parent_id: Number(newMember.parent_id), department_id: Number(newMember.department_id) });
+      await createUser({
+        ...newMember,
+        parent_id: Number(newMember.parent_id),
+        ...(newMember.department_id ? { department_id: Number(newMember.department_id) } : {}),
+      });
       setShowAddModal(false);
       setNewMember({ name: "", email: "", password: "", role: "user", parent_id: "", department_id: "" });
       await loadAll();
@@ -259,7 +268,9 @@ export default function Dashboard() {
       await updateUser(updateMember.id, {
         name: updateMember.name,
         role: updateMember.role,
-        ...(updateMember.department_id ? { department_id: Number(updateMember.department_id) } : {}),
+        ...(currentUser?.role === "superadmin" && updateMember.role === "admin"
+          ? { department_id: updateMember.department_id ? Number(updateMember.department_id) : null }
+          : updateMember.department_id ? { department_id: Number(updateMember.department_id) } : {}),
         ...(updateMember.role !== "superadmin" ? { parent_id: Number(updateMember.parent_id) } : {}),
       });
       setShowUpdateModal(false);
@@ -268,6 +279,31 @@ export default function Dashboard() {
       setUpdateError(err.message);
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleDepartmentReportDownload() {
+    if (!reportDate) {
+      setReportError("Choose a date for the report.");
+      return;
+    }
+    setDownloadingReport(true);
+    setReportError("");
+    try {
+      const { blob, filename } = await downloadDepartmentDailyReport(reportDate);
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+      setShowReportModal(false);
+    } catch (error) {
+      setReportError(error.message || "Unable to download the report.");
+    } finally {
+      setDownloadingReport(false);
     }
   }
 
@@ -290,8 +326,19 @@ export default function Dashboard() {
             <option value="idle">Idle</option>
             <option value="offline">Offline</option>
           </select>
+          {currentUser?.role === "admin" && (
+            <button
+              className="btn-secondary department-report-button"
+              onClick={() => {
+                setReportDate(todayStr());
+                setReportError("");
+                setShowReportModal(true);
+              }}
+              title="Download company-wide daily timesheet report"
+            ><Download size={15} aria-hidden="true" /> Company Report</button>
+          )}
           <button className="btn-primary" onClick={openUpdateModal}>✎ Update User</button>
-          {currentUser?.role === "superadmin" && (
+          {["superadmin", "admin"].includes(currentUser?.role) && (
             <button className="btn-primary" onClick={() => navigate("/departments")}>＋ Create Department</button>
           )}
           <button className="btn-primary" onClick={() => setShowAddModal(true)}>＋ Add Member</button>
@@ -410,9 +457,18 @@ export default function Dashboard() {
                 <option value="tl">Team Lead</option>
                 <option value="user">User</option>
               </select>
-              <label>Department</label>
-              <select required value={newMember.department_id} onChange={(e) => setNewMember({ ...newMember, department_id: e.target.value })} disabled={!departments.length}>
-                <option value="">{departments.length ? "Select department" : "No departments available"}</option>
+              <label>Department{newMember.role === "admin" ? " (optional)" : ""}</label>
+              <select
+                required={newMember.role !== "admin"}
+                value={newMember.department_id}
+                onChange={(e) => setNewMember({ ...newMember, department_id: e.target.value })}
+                disabled={!departments.length && newMember.role !== "admin"}
+              >
+                <option value="">
+                  {newMember.role === "admin"
+                    ? "Unassigned"
+                    : departments.length ? "Select department" : "No departments available"}
+                </option>
                 {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
               </select>
               <label>Reports to</label>
@@ -424,7 +480,11 @@ export default function Dashboard() {
               </select>
               <div className="modal-actions">
                 <button type="button" className="btn-secondary" onClick={() => setShowAddModal(false)}>Cancel</button>
-                <button type="submit" className="btn-primary" disabled={saving || !newMember.department_id}>{saving ? "Adding..." : "Add Member"}</button>
+                <button
+                  type="submit"
+                  className="btn-primary"
+                  disabled={saving || (newMember.role !== "admin" && !newMember.department_id)}
+                >{saving ? "Adding..." : "Add Member"}</button>
               </div>
             </form>
           </div>
@@ -445,7 +505,11 @@ export default function Dashboard() {
               <input required value={updateMember.name} onChange={(e) => setUpdateMember({ ...updateMember, name: e.target.value })} />
               <label>Department</label>
               <select value={updateMember.department_id} onChange={(e) => setUpdateMember({ ...updateMember, department_id: e.target.value })}>
-                <option value="">Keep current / Unassigned</option>
+                <option value="">
+                  {currentUser?.role === "superadmin" && updateMember.role === "admin"
+                    ? "Unassigned"
+                    : "Keep current / Unassigned"}
+                </option>
                 {departments.map((department) => <option key={department.id} value={department.id}>{department.name}</option>)}
               </select>
               <label>Role</label>
@@ -495,6 +559,38 @@ export default function Dashboard() {
               <button type="button" className="btn-secondary" onClick={() => setSelectedSummaryMember(null)}>Close</button>
             </div>
           </div>
+        </div>
+      )}
+      {showReportModal && currentUser?.role === "admin" && (
+        <div className="modal-overlay" onMouseDown={(event) => {
+          if (event.target === event.currentTarget && !downloadingReport) setShowReportModal(false);
+        }}>
+          <section
+            className="modal-box timesheet-download-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="company-report-title"
+          >
+            <h3 id="company-report-title">Download Company Report</h3>
+            <p className="muted">Choose a date to export daily timesheet summaries for Managers, Team Leads, and Users in your company.</p>
+            <label htmlFor="company-report-date">Report Date</label>
+            <input
+              id="company-report-date"
+              type="date"
+              value={reportDate}
+              onChange={(event) => setReportDate(event.target.value)}
+              disabled={downloadingReport}
+            />
+            {reportError && <div className="alert-error" role="alert">{reportError}</div>}
+            <div className="modal-actions">
+              <button type="button" className="btn-secondary" onClick={() => setShowReportModal(false)} disabled={downloadingReport}>
+                Cancel
+              </button>
+              <button type="button" className="btn-primary" onClick={handleDepartmentReportDownload} disabled={downloadingReport}>
+                {downloadingReport ? "Downloading..." : "Download Report"}
+              </button>
+            </div>
+          </section>
         </div>
       )}
     </div>

@@ -28,9 +28,12 @@ export default function Departments() {
       .finally(() => setLoading(false));
   }, []);
 
-  if (!loading && currentUser?.role !== "superadmin") {
-    return <main className="department-page"><h1>Departments</h1><p className="subtitle">Department management is restricted to Super Admins.</p></main>;
+  if (!loading && !["superadmin", "admin"].includes(currentUser?.role)) {
+    return <main className="department-page"><h1>Departments</h1><p className="subtitle">Department creation is restricted to Admins and Super Admins.</p></main>;
   }
+
+  const isSuperAdmin = currentUser?.role === "superadmin";
+  const pageScopeLabel = isSuperAdmin ? "Organization departments" : "Your departments";
 
   async function handleCreate(event) {
     event.preventDefault();
@@ -83,22 +86,24 @@ export default function Departments() {
     <main className="department-page">
       <header className="department-header">
         <div className="department-heading-icon"><Building2 size={22} aria-hidden="true" /></div>
-        <div><h1>Departments</h1><p className="subtitle">Create and manage organization departments.</p></div>
+        <div><h1>Departments</h1><p className="subtitle">{isSuperAdmin ? "View and manage all departments." : "Create and manage departments only you and Super Admins can see."}</p></div>
       </header>
 
       {error && <div className="alert-error" role="alert">{error}</div>}
       {notice && <div className="alert-success" role="status">{notice}</div>}
 
-      <section className="department-create table-card">
-        <div><h2>Create department</h2><p className="subtitle">Departments are available when assigning members.</p></div>
-        <form onSubmit={handleCreate}>
-          <input aria-label="Department name" placeholder="Department name" maxLength={120} required value={name} onChange={(event) => setName(event.target.value)} />
-          <button type="submit" className="btn-primary" disabled={saving || !name.trim()}><Plus size={16} />Create Department</button>
-        </form>
-      </section>
+      {["superadmin", "admin"].includes(currentUser?.role) && (
+        <section className="department-create table-card">
+          <div><h2>Create department</h2><p className="subtitle">{isSuperAdmin ? "Departments are available when assigning members." : "Only you and Super Admins can see departments you create."}</p></div>
+          <form onSubmit={handleCreate}>
+            <input aria-label="Department name" placeholder="Department name" maxLength={120} required value={name} onChange={(event) => setName(event.target.value)} />
+            <button type="submit" className="btn-primary" disabled={saving || !name.trim()}><Plus size={16} />Create Department</button>
+          </form>
+        </section>
+      )}
 
       <section className="department-list table-card">
-        <div className="department-list-heading"><h2>Organization departments</h2><span>{departments.length} total</span></div>
+        <div className="department-list-heading"><h2>{pageScopeLabel}</h2><span>{departments.length} total</span></div>
         {loading ? <p className="department-empty">Loading departments...</p> : departments.length ? (
           <div className="department-rows">
             {departments.map((department) => (
@@ -110,9 +115,9 @@ export default function Departments() {
                       <button type="submit" disabled={saving || !editingName.trim()} title="Save name" aria-label="Save name"><Check size={16} /></button>
                       <button type="button" onClick={() => setEditingId(null)} title="Cancel" aria-label="Cancel rename"><X size={16} /></button>
                     </form>
-                  ) : <><strong>{department.name}</strong><small>Department #{department.id}</small></>}
+                  ) : <strong>{department.name}</strong>}
                 </div>
-                {editingId !== department.id && (
+                {isSuperAdmin && editingId !== department.id && (
                   <div className="department-row-actions">
                     <button type="button" onClick={() => { setEditingId(department.id); setEditingName(department.name); }} title={`Edit ${department.name}`} aria-label={`Edit ${department.name}`}><Pencil size={16} /></button>
                     <button type="button" className="department-delete" onClick={() => handleDelete(department)} title={`Delete ${department.name}`} aria-label={`Delete ${department.name}`}><Trash2 size={16} /></button>

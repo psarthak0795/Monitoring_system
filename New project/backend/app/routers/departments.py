@@ -18,12 +18,21 @@ def _normalize_name(name: str) -> str:
     return normalized
 
 
-def _ensure_unique_name(db: Session, name: str, exclude_id: int | None = None) -> None:
+def _ensure_unique_name(
+    db: Session,
+    name: str,
+    owner_id: int | None,
+    exclude_id: int | None = None,
+) -> None:
     query = db.query(models.Department).filter(func.lower(models.Department.name) == name.lower())
+    if owner_id is None:
+        query = query.filter(models.Department.created_by_id.is_(None))
+    else:
+        query = query.filter(models.Department.created_by_id == owner_id)
     if exclude_id is not None:
         query = query.filter(models.Department.id != exclude_id)
     if query.first():
-        raise HTTPException(status_code=409, detail="A department with this name already exists.")
+        raise HTTPException(status_code=409, detail="A department with this name already exists in your department list.")
 
 
 @router.get("", response_model=List[schemas.DepartmentOut])
@@ -44,11 +53,12 @@ def list_departments(
 def create_department(
     payload: schemas.DepartmentCreate,
     db: Session = Depends(get_db),
-    _: models.User = Depends(auth.require_superadmin),
+    current_user: models.User = Depends(auth.require_admin),
 ):
     name = _normalize_name(payload.name)
-    _ensure_unique_name(db, name)
-    department = models.Department(name=name)
+    owner_id = current_user.id if current_user.role == models.UserRole.admin else None
+    _ensure_unique_name(db, name, owner_id)
+    department = models.Department(name=name, created_by_id=owner_id)
     db.add(department)
     try:
         db.commit()
@@ -70,7 +80,7 @@ def update_department(
     if not department:
         raise HTTPException(status_code=404, detail="Department not found.")
     name = _normalize_name(payload.name)
-    _ensure_unique_name(db, name, exclude_id=department_id)
+    _ensure_unique_name(db, name, department.created_by_id, exclude_id=department_id)
     department.name = name
     try:
         db.commit()

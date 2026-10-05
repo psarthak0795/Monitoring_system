@@ -124,14 +124,18 @@ def create_user(
         raise HTTPException(status_code=400, detail="Email already registered")
 
     parent = _validate_parent(db, current_user, payload.role, payload.parent_id)
-    department = _validate_department(db, current_user, payload.department_id)
+    department = (
+        None
+        if payload.role == models.UserRole.admin and payload.department_id is None
+        else _validate_department(db, current_user, payload.department_id)
+    )
     user = models.User(
         name=payload.name,
         email=payload.email,
         hashed_password=auth.hash_password(payload.password),
         role=payload.role,
         parent_id=parent.id if parent else None,
-        department_id=department.id,
+        department_id=department.id if department else None,
     )
     db.add(user)
     db.commit()
@@ -273,8 +277,15 @@ def update_user(
         user.name = payload.name
 
     if "department_id" in payload.model_fields_set:
-        department = _validate_department(db, acting_user, payload.department_id)
-        user.department_id = department.id
+        if (
+            payload.department_id is None
+            and acting_user.role == models.UserRole.superadmin
+            and new_role == models.UserRole.admin
+        ):
+            user.department_id = None
+        else:
+            department = _validate_department(db, acting_user, payload.department_id)
+            user.department_id = department.id
 
     if payload.is_active is not None:
         if user_id == acting_user.id:

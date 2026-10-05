@@ -7,8 +7,11 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
 from app import models
-from app.auth import can_manage, visible_user_filter
+from app.auth import can_manage, require_admin, visible_user_filter
+from app.routers.departments import create_department, list_departments
+from app.routers.users import create_user, update_user
 from app.routers.users import get_user_activity_summary, list_users
+from app.schemas import DepartmentCreate, UserCreate, UserUpdate
 
 
 class RbacVisibilityTests(unittest.TestCase):
@@ -51,6 +54,129 @@ class RbacVisibilityTests(unittest.TestCase):
     def test_manager_sees_recursive_team_only(self):
         visible = visible_user_filter(self.db.query(models.User), self.manager).all()
         self.assertEqual({user.email for user in visible}, {self.manager.email, self.employee.email, self.nested.email})
+
+    def test_admin_can_create_department_but_manager_cannot(self):
+        authorized_admin = require_admin(self.admin)
+        department = create_department(
+            payload=DepartmentCreate(name="New Admin Department"),
+            db=self.db,
+            current_user=authorized_admin,
+        )
+
+        self.assertEqual(department.name, "New Admin Department")
+        self.assertEqual(department.created_by_id, self.admin.id)
+        with self.assertRaises(HTTPException) as raised:
+            require_admin(self.manager)
+        self.assertEqual(raised.exception.status_code, 403)
+
+    def test_admin_department_visibility_is_private_and_names_are_per_admin(self):
+        other_admin = models.User(
+            name="Other Admin",
+            email=f"other-admin-{id(self)}@test",
+            hashed_password="x",
+            role=models.UserRole.admin,
+            department_id=self.other.department_id,
+        )
+        self.db.add(other_admin)
+        self.db.commit()
+
+        department_a = create_department(
+            payload=DepartmentCreate(name="Operations"),
+            db=self.db,
+            current_user=self.admin,
+        )
+        department_b = create_department(
+            payload=DepartmentCreate(name="Operations"),
+            db=self.db,
+            current_user=other_admin,
+        )
+        manager_a = create_user(
+            payload=UserCreate(
+                name="Operations Manager A",
+                email=f"manager-a-{id(self)}@example.com",
+                password="password",
+                role=models.UserRole.manager,
+                department_id=department_a.id,
+                parent_id=self.admin.id,
+            ),
+            db=self.db,
+            current_user=self.admin,
+        )
+        manager_b = create_user(
+            payload=UserCreate(
+                name="Operations Manager B",
+                email=f"manager-b-{id(self)}@example.com",
+                password="password",
+                role=models.UserRole.manager,
+                department_id=department_b.id,
+                parent_id=other_admin.id,
+            ),
+            db=self.db,
+            current_user=other_admin,
+        )
+
+        admin_departments = list_departments(db=self.db, current_user=self.admin)
+        other_admin_departments = list_departments(db=self.db, current_user=other_admin)
+        superadmin_departments = list_departments(db=self.db, current_user=self.superadmin)
+        admin_users = list_users(db=self.db, current_user=self.admin)
+        other_admin_users = list_users(db=self.db, current_user=other_admin)
+
+        self.assertEqual(department_a.name, department_b.name)
+        self.assertEqual(department_a.created_by_id, self.admin.id)
+        self.assertEqual(department_b.created_by_id, other_admin.id)
+        self.assertIn(department_a.id, {department.id for department in admin_departments})
+        self.assertNotIn(department_b.id, {department.id for department in admin_departments})
+        self.assertIn(department_b.id, {department.id for department in other_admin_departments})
+        self.assertNotIn(department_a.id, {department.id for department in other_admin_departments})
+        self.assertIn(department_a.id, {department.id for department in superadmin_departments})
+        self.assertIn(department_b.id, {department.id for department in superadmin_departments})
+        self.assertIn(manager_a.id, {user.id for user in admin_users})
+        self.assertNotIn(manager_b.id, {user.id for user in admin_users})
+        self.assertIn(manager_b.id, {user.id for user in other_admin_users})
+        self.assertNotIn(manager_a.id, {user.id for user in other_admin_users})
+
+    def test_superadmin_can_create_admin_without_department(self):
+        admin = create_user(
+            payload=UserCreate(
+                name="New Admin",
+                email=f"new-admin-{id(self)}@example.com",
+                password="password",
+                role=models.UserRole.admin,
+                parent_id=self.superadmin.id,
+            ),
+            db=self.db,
+            current_user=self.superadmin,
+        )
+
+        self.assertEqual(admin.role, models.UserRole.admin)
+        self.assertIsNone(admin.department_id)
+
+    def test_superadmin_can_assign_and_unassign_admin_department(self):
+        admin = models.User(
+            name="Unassigned Admin",
+            email=f"unassigned-admin-{id(self)}@example.com",
+            hashed_password="x",
+            role=models.UserRole.admin,
+            parent_id=self.superadmin.id,
+        )
+        self.db.add(admin)
+        self.db.commit()
+
+        assigned = update_user(
+            user_id=admin.id,
+            payload=UserUpdate(department_id=self.other.department_id),
+            db=self.db,
+            acting_user=self.superadmin,
+        )
+        self.assertEqual(assigned.department_id, self.other.department_id)
+
+        unassigned = update_user(
+            user_id=admin.id,
+            payload=UserUpdate(department_id=None),
+            db=self.db,
+            acting_user=self.superadmin,
+        )
+        self.assertIsNone(unassigned.department_id)
 
     def test_manager_dashboard_lists_assigned_admin_without_profile_access(self):
         self.manager.parent_id = self.admin.id

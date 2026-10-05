@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
-import { getCurrentUser, getUser, listTimeEntries, listScreenshots } from "../api";
+import { FileSpreadsheet } from "lucide-react";
+import { getCurrentUser, getUser, listTimeEntries, listScreenshots, downloadTimesheet } from "../api";
 
 function localDay(dateStr) {
   const d = new Date(dateStr);
@@ -64,25 +65,33 @@ function formatTimeRange(entry) {
 export default function EmployeeDetail() {
   const { id, role } = useParams();
   const navigate = useNavigate();
-  const [userId, setUserId] = useState(id === "me" ? null : Number(id));
 
   const [user, setUser] = useState(null);
   const [entries, setEntries] = useState([]);
   const [screenshots, setScreenshots] = useState([]);
+  const [viewer, setViewer] = useState(null);
   const [dateFilter, setDateFilter] = useState(todayStr());
   const [granularity, setGranularity] = useState("daily"); // daily | weekly | monthly
   const [loading, setLoading] = useState(true);
+  const [pageError, setPageError] = useState("");
+  const [downloadOpen, setDownloadOpen] = useState(false);
+  const [downloadStart, setDownloadStart] = useState(todayStr());
+  const [downloadEnd, setDownloadEnd] = useState(todayStr());
+  const [downloadError, setDownloadError] = useState("");
+  const [downloading, setDownloading] = useState(false);
 
   useEffect(() => {
     setLoading(true);
-    const userRequest = id === "me" ? getCurrentUser() : getUser(Number(id));
-    userRequest
-      .then((currentUser) => {
-        setUserId(currentUser.id);
+    setPageError("");
+    const viewerRequest = getCurrentUser();
+    const userRequest = id === "me" ? viewerRequest : getUser(Number(id));
+    Promise.all([viewerRequest, userRequest])
+      .then(([signedInUser, profileUser]) => {
+        setViewer(signedInUser);
         return Promise.all([
-          Promise.resolve(currentUser),
-          listTimeEntries(currentUser.id),
-          listScreenshots(currentUser.id),
+          Promise.resolve(profileUser),
+          listTimeEntries(profileUser.id),
+          listScreenshots(profileUser.id),
         ]);
       })
       .then(([u, e, s]) => {
@@ -90,6 +99,7 @@ export default function EmployeeDetail() {
         setEntries(e);
         setScreenshots(s);
       })
+      .catch((error) => setPageError(error.message || "Unable to load this employee profile."))
       .finally(() => setLoading(false));
   }, [id]);
 
@@ -215,9 +225,48 @@ export default function EmployeeDetail() {
   const liveStatusLabel = liveStatus === "active" ? "Live Syncing" : liveStatus === "idle" ? "Idle" : "Offline";
   const memberRoleNames = { admins: "Admins", managers: "Managers", "team-leads": "Team Leads", users: "Users" };
   const roleBasePath = role ? `/members/${role}/${id}` : `/employee/${id}`;
+  const canDownloadTimesheet = Boolean(
+    viewer
+    && user
+    && (
+      viewer.role === "superadmin"
+      || (
+        viewer.role === "admin"
+        && (
+          viewer.id === user.id
+          || ["manager", "tl", "user"].includes(user.role)
+        )
+      )
+    )
+  );
 
   if (loading) return <div className="loading-state">Loading...</div>;
-  if (!user) return <div className="loading-state">Employee not found.</div>;
+  if (!user) return <div className="loading-state">{pageError || "Employee not found."}</div>;
+
+  async function handleTimesheetDownload() {
+    if (!downloadStart || !downloadEnd || downloadStart > downloadEnd) {
+      setDownloadError("Choose a valid date range with the start date on or before the end date.");
+      return;
+    }
+    setDownloading(true);
+    setDownloadError("");
+    try {
+      const { blob, filename } = await downloadTimesheet(user.id, downloadStart, downloadEnd);
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = filename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+      setDownloadOpen(false);
+    } catch (error) {
+      setDownloadError(error.message || "Unable to download the timesheet.");
+    } finally {
+      setDownloading(false);
+    }
+  }
 
   return (
     <div>
@@ -305,6 +354,27 @@ export default function EmployeeDetail() {
             <div className="stat-value">{dayShots.length}</div>
             <div className="metric-card-hint">View all →</div>
           </button>
+          {canDownloadTimesheet && (
+            <button
+              type="button"
+              className="metric-card metric-card-btn"
+              onClick={() => {
+                setDownloadStart(dateFilter);
+                setDownloadEnd(dateFilter);
+                setDownloadError("");
+                setDownloadOpen(true);
+              }}
+              title="Download this employee's timesheet"
+            >
+              <div className="metric-card-top">
+                <span className="stat-label">Timesheet</span>
+                <span className="metric-icon metric-icon-purple">
+                  <FileSpreadsheet size={16} strokeWidth={2} aria-hidden="true" />
+                </span>
+              </div>
+              <div className="metric-card-hint">Download →</div>
+            </button>
+          )}
         </div>
       </div>
 
@@ -381,6 +451,48 @@ export default function EmployeeDetail() {
           </div>
         </div>
       </div>
+      {downloadOpen && (
+        <div className="modal-overlay" onMouseDown={(event) => {
+          if (event.target === event.currentTarget && !downloading) setDownloadOpen(false);
+        }}>
+          <section
+            className="modal-box timesheet-download-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="timesheet-download-title"
+          >
+            <h3 id="timesheet-download-title">Download Timesheet</h3>
+            <p className="muted">Choose the date range for {user.name}.</p>
+            <label htmlFor="timesheet-start-date">Start Date</label>
+            <input
+              id="timesheet-start-date"
+              type="date"
+              value={downloadStart}
+              max={downloadEnd || undefined}
+              onChange={(event) => setDownloadStart(event.target.value)}
+              disabled={downloading}
+            />
+            <label htmlFor="timesheet-end-date">End Date</label>
+            <input
+              id="timesheet-end-date"
+              type="date"
+              value={downloadEnd}
+              min={downloadStart || undefined}
+              onChange={(event) => setDownloadEnd(event.target.value)}
+              disabled={downloading}
+            />
+            {downloadError && <div className="alert-error" role="alert">{downloadError}</div>}
+            <div className="modal-actions">
+              <button type="button" className="btn-secondary" onClick={() => setDownloadOpen(false)} disabled={downloading}>
+                Cancel
+              </button>
+              <button type="button" className="btn-primary" onClick={handleTimesheetDownload} disabled={downloading}>
+                {downloading ? "Downloading..." : "Download"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </div>
   );
 }

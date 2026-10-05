@@ -41,12 +41,30 @@ class Department(Base):
     __tablename__ = "departments"
 
     id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(120), nullable=False, unique=True, index=True)
-    __table_args__ = (Index("uq_departments_name_lower", func.lower(name), unique=True),)
+    name = Column(String(120), nullable=False, index=True)
+    created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    __table_args__ = (
+        Index(
+            "uq_departments_owner_name_lower",
+            "created_by_id",
+            func.lower(name),
+            unique=True,
+            postgresql_where=created_by_id.is_not(None),
+            sqlite_where=created_by_id.is_not(None),
+        ),
+        Index(
+            "uq_departments_unowned_name_lower",
+            func.lower(name),
+            unique=True,
+            postgresql_where=created_by_id.is_(None),
+            sqlite_where=created_by_id.is_(None),
+        ),
+    )
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now(), nullable=False)
 
-    users = relationship("User", back_populates="department")
+    users = relationship("User", back_populates="department", foreign_keys="User.department_id")
+    created_by = relationship("User", foreign_keys=[created_by_id])
     consents = relationship("ConsentRecord", back_populates="department")
 
 
@@ -66,7 +84,7 @@ class User(Base):
     department_id = Column(Integer, ForeignKey("departments.id"), nullable=True, index=True)
     organization_id = synonym("department_id")
     parent = relationship("User", remote_side=[id], foreign_keys=[parent_id], backref="direct_reports")
-    department = relationship("Department", back_populates="users")
+    department = relationship("Department", back_populates="users", foreign_keys=[department_id])
 
     time_entries = relationship("TimeEntry", back_populates="user")
     manager = relationship("User", remote_side=[id], foreign_keys=[manager_id], back_populates="reports")

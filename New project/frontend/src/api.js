@@ -128,6 +128,75 @@ export async function listTimeEntries(userId, range) {
   return handle(resp);
 }
 
+export async function downloadTimesheet(userId, startDate, endDate) {
+  const url = new URL(`${BACKEND_URL}/time-entries/${userId}/download`);
+  if (startDate) url.searchParams.set("start_date", startDate);
+  if (endDate) url.searchParams.set("end_date", endDate);
+
+  let resp;
+  try {
+    resp = await fetch(url, { headers: authHeaders() });
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw new Error("Unable to connect to the server. Check your connection and try again.");
+    }
+    throw error;
+  }
+
+  if (!resp.ok) {
+    let detail;
+    try {
+      detail = (await resp.json()).detail;
+    } catch {
+      detail = null;
+    }
+    if (resp.status === 401) throw new Error("Your session has expired. Please sign in again.");
+    if (resp.status === 403) throw new Error("You do not have permission to download this timesheet.");
+    if (resp.status === 404) {
+      throw new Error(detail || "No timesheet data found for the selected date range.");
+    }
+    if (resp.status === 400) throw new Error(detail || "The selected date range is invalid.");
+    throw new Error(detail || `Timesheet download failed (${resp.status}).`);
+  }
+
+  const contentDisposition = resp.headers.get("Content-Disposition") || "";
+  const filename = contentDisposition.match(/filename="?([^";]+)"?/i)?.[1] || "timesheet.xlsx";
+  return { blob: await resp.blob(), filename };
+}
+
+export async function downloadDepartmentDailyReport(reportDate) {
+  const url = new URL(`${BACKEND_URL}/time-entries/report/download`);
+  url.searchParams.set("report_date", reportDate);
+
+  let resp;
+  try {
+    resp = await fetch(url, { headers: authHeaders() });
+  } catch (error) {
+    if (error instanceof TypeError) {
+      throw new Error("Unable to connect to the server. Check your connection and try again.");
+    }
+    throw error;
+  }
+
+  if (!resp.ok) {
+    let detail;
+    try {
+      detail = (await resp.json()).detail;
+    } catch {
+      detail = null;
+    }
+    if (resp.status === 401) throw new Error("Your session has expired. Please sign in again.");
+    if (resp.status === 403) throw new Error("Only Admins can download the company report.");
+    if (resp.status === 404) throw new Error(detail || "No report data found for the selected date.");
+    if (resp.status === 422) throw new Error("Choose a valid report date.");
+    throw new Error(detail || `Report download failed (${resp.status}).`);
+  }
+
+  const contentDisposition = resp.headers.get("Content-Disposition") || "";
+  const filename = contentDisposition.match(/filename="?([^";]+)"?/i)?.[1] || "company-timesheet.xlsx";
+  return { blob: await resp.blob(), filename };
+}
+
 export async function sendHeartbeat(entryId, isIdle) {
   const resp = await fetch(`${BACKEND_URL}/time-entries/${entryId}/heartbeat`, {
     method: "POST",
